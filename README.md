@@ -1,5 +1,7 @@
 # Sofia — AI-Powered Facebook Messenger Chatbot
 
+> **SOFIA** — Sales-Oriented Fulfillment & Intelligent Automation
+>
 > A production-grade, hybrid AI sales assistant for Ace Apparel built on Facebook Messenger.
 > Combines rule-based determinism with Gemini LLM and Pinecone RAG for reliable,
 > cost-efficient, personality-driven customer interactions.
@@ -79,7 +81,7 @@ Facebook Messenger
 | :-------------- | :------------------------------- |
 | Backend         | Python 3.11, Flask 3.0           |
 | WSGI Server     | Gunicorn                         |
-| LLM             | Google Gemini 2.0 Flash Lite     |
+| LLM             | Google Gemini 2.5 Flash Lite     |
 | Vector Search   | Pinecone (RAG pipeline)          |
 | Embeddings      | Gemini Embedding 001 (3072-dim)  |
 | Database        | TiDB Cloud (MySQL-compatible)    |
@@ -198,7 +200,7 @@ sofia-bot/
 ### 1. Fork and clone the repository
 
 ```bash
-git clone https://github.com/yourusername/sofia-bot.git
+git clone https://github.com/Lawrenze09/SOFIA-RAG-enabled-conversational-commerce-middleware.git
 cd sofia-bot
 ```
 
@@ -235,7 +237,7 @@ python scripts/sync_products.py
 
 ```bash
 # Clone
-git clone https://github.com/yourusername/sofia-bot.git
+git clone https://github.com/Lawrenze09/SOFIA-Messenger-Bot.git
 cd sofia-bot
 
 # Create virtual environment
@@ -340,8 +342,8 @@ Customer: "may puso ka ba?"
 
 Built by [Your Name] — Junior AI Automation Engineer
 
-- GitHub: [@Lawrenze09](https://github.com/Lawrenze09)
-- LinkedIn: [LinkedIn Profile](https://www.linkedin.com/in/lawrenze-romero-6b6871378/)
+- GitHub: [Lawrenze09](https://github.com/Lawrenze09)
+- LinkedIn: [Lawrenze Romero](https://www.linkedin.com/in/lawrenze-romero-6b6871378/)
 
 ---
 
