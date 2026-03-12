@@ -48,3 +48,36 @@ def send_message(psid: str, text: str) -> bool:
     except requests.RequestException as exc:
         logger.error(f"Messenger send exception for {psid}: {exc}")
         return False
+
+def send_image(psid: str, image_url: str) -> bool:
+    """
+    Send an image attachment to a Messenger user.
+    """
+    try:
+        response = requests.post(
+            _GRAPH_API_URL,
+            params={"access_token": settings.page_access_token},
+            json={
+                "recipient": {"id": psid},
+                "message": {
+                    "attachment": {
+                        "type": "image",
+                        "payload": {
+                            "url": image_url,
+                            "is_reusable": True
+                        }
+                    }
+                },
+            },
+            timeout=10,
+        )
+        if response.status_code == 200:
+            logger.info(f"Image sent successfully to {psid}")
+            return True
+
+        logger.error(f"Image send failed — status: {response.status_code} body: {response.text}")
+        return False
+
+    except requests.RequestException as exc:
+        logger.error(f"Image send exception for {psid}: {exc}")
+        return False

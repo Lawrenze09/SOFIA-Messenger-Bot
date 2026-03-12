@@ -32,7 +32,7 @@ from services.session_service import (
     reset_session,
     get_redis,
 )
-from services.messenger_service import send_message
+from services.messenger_service import send_message, send_image
 from services.email_service     import send_admin_alert
 from utils.security import verify_hmac, is_prompt_injection, is_silent_message, is_duplicate
 
@@ -250,6 +250,23 @@ def _process_message(psid: str, text: str, mid: str) -> None:
     # ── 5. Intent classification ──
     intent = classify(text)
     log_intent(psid, session_id, intent.value, text)
+
+    # ── 5b. SIZE CHART INTERCEPTOR (Custom logic) ──
+    size_keywords = {"size", "sukat", "chart", "measurements", "dimensions", "fitting"}
+    if any(kw in text.lower() for kw in size_keywords):
+        logger.info(f"Size chart intent detected for {psid}")
+        
+        # 1. Friendly text intro
+        send_message(psid, "Sure! Heto ang aming Premium Boxer Briefs size chart para sa iyong reference: 📏")
+        
+        # 2. Ipadala ang mismong image mula sa GitHub assets mo
+        image_url = "https://raw.githubusercontent.com/Lawrenze09/SOFIA-Messenger-Bot/main/assets/size-chart-boxer.jpg"
+        send_image(psid, image_url)
+        
+        # 3. I-log ang event at tapusin ang process (Wag na dumaan sa AI)
+        log_message(psid, session_id, text, "[IMAGE] Size Chart Sent", 
+                    intent.value, time.time() - start_time)
+        return
 
     # ── 6a. Keyword handover or REFUND / COMPLAINT ──
     if agent.needs_keyword_handover(text) or intent in (
