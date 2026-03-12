@@ -43,7 +43,7 @@ _INTENT_KEYWORDS: dict[Intent, list[str]] = {
     ],
     Intent.WHOLE_SALE: [
         "whole sale", "bultuhan", "maramihan", "reseller", "bulto",
-        "pakyawan", "pakyawin", "bulk", "wholesale", "rs",
+        "pakyawan", "pakyawin", "bulk", "wholesale",
     ],
     Intent.SHIPPING_INFO: [
         "shipping", "deliver", "delivery", "pano delivery",
