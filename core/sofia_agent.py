@@ -49,6 +49,9 @@ MSG_GUARDRAIL_HANDOVER = (
     "alert ko nalang si admin para matulungan po kayo agad."
 )
 
+SIZE_CHART_BOXER  = "https://raw.githubusercontent.com/Lawrenze09/SOFIA-Messenger-Bot/main/assets/size-chart-boxer.jpg"
+
+MSG_SIZE_CHART = "Sure boss! Heto ang aming size chart para sa inyong reference "
 
 # ─────────────────────────────────────────────
 # SOFIA AGENT
@@ -235,7 +238,8 @@ RULES
             )
 
         if intent in (Intent.PRODUCT_INQUIRY, Intent.PRICE_QUERY):
-            products = search_products(message)
+            budget   = self._extract_budget(message)
+            products = search_products(message, max_price=budget)
             reply    = self._format_product_reply(products)
             if reply:
                 return reply
@@ -315,3 +319,24 @@ RULES
         lines.append("Pili ka lang boss, solid lahat 'yan!")
         return "\n".join(lines)
     
+    # ─────────────────────────────────────────
+    # BUDGET EXTRACTION
+    # ─────────────────────────────────────────
+
+    def _extract_budget(self, message: str) -> float | None:
+        """
+        Extract a budget ceiling from a customer message.
+        e.g. 'may hoodie below 500?' → 500.0
+
+        Returns:
+            Float price ceiling, or None if no budget found.
+        """
+        import re
+        match = re.search(
+            r'(?:below|under|less than|hindi hihigit|hindi lalampas|'
+            r'wala pang|max|budget(?:\s*ko)?)\s*₱?\s*(\d+)',
+            message.lower()
+        )
+        if match:
+            return float(match.group(1))
+        return None

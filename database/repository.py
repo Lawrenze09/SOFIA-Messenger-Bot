@@ -6,7 +6,6 @@ No SQL should exist outside this module.
 """
 
 from datetime import datetime, timezone
-from typing import Optional
 
 from database.client import get_connection
 from utils.logger import get_logger
@@ -127,14 +126,15 @@ def log_intent(
 # PRODUCTS
 # ─────────────────────────────────────────────
 
-def search_products(text: str) -> list[dict]:
+def search_products(text: str, max_price: float | None = None) -> list[dict]:
     """
     Search products by name, category, or description using LIKE matching.
     Tries full phrase first, then falls back to individual word matching.
-    LOWER() on DB side handles capital letters in stored data automatically.
+    Optionally filters by price ceiling (max_price).
 
     Args:
-        text: Customer message to search against product data.
+        text:      Customer message to search against product data.
+        max_price: Optional price ceiling — returns only products <= this price.
 
     Returns:
         List of matching product dicts (up to 3 results).
@@ -144,9 +144,16 @@ def search_products(text: str) -> list[dict]:
         conn   = get_connection()
         cursor = conn.cursor()
 
+        # ── Build price filter ──
+        price_filter = " AND price <= %s" if max_price is not None else ""
+
         # ── Full phrase match ──
+        params = [f"%{lower}%", f"%{lower}%", f"%{lower}%"]
+        if max_price is not None:
+            params.append(max_price)
+
         cursor.execute(
-            """
+            f"""
             SELECT name, size, price, description, category, stock_quantity
             FROM products
             WHERE stock_quantity > 0
@@ -155,9 +162,10 @@ def search_products(text: str) -> list[dict]:
                 LOWER(category)    LIKE %s OR
                 LOWER(description) LIKE %s
             )
+            {price_filter}
             LIMIT 3
             """,
-            (f"%{lower}%", f"%{lower}%", f"%{lower}%"),
+            params,
         )
         rows = cursor.fetchall()
 
@@ -173,8 +181,12 @@ def search_products(text: str) -> list[dict]:
                 if len(w) > 2 and w not in stop_words
             ]
             for word in words:
+                word_params = [f"%{word}%", f"%{word}%", f"%{word}%"]
+                if max_price is not None:
+                    word_params.append(max_price)
+
                 cursor.execute(
-                    """
+                    f"""
                     SELECT name, size, price, description, category, stock_quantity
                     FROM products
                     WHERE stock_quantity > 0
@@ -183,9 +195,10 @@ def search_products(text: str) -> list[dict]:
                         LOWER(category)    LIKE %s OR
                         LOWER(description) LIKE %s
                     )
+                    {price_filter}
                     LIMIT 3
                     """,
-                    (f"%{word}%", f"%{word}%", f"%{word}%"),
+                    word_params,
                 )
                 rows = cursor.fetchall()
                 if rows:

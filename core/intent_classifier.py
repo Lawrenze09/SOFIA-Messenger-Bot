@@ -27,6 +27,7 @@ class Intent(str, Enum):
     WHOLE_SALE      = "WHOLE_SALE"
     SHIPPING_INFO   = "SHIPPING_INFO"
     PURCHASE        = "PURCHASE"
+    SIZE_CHART      = "SIZE_CHART"
     PLAYFUL         = "PLAYFUL"
     BANTER          = "BANTER"
     UNKNOWN         = "UNKNOWN"
@@ -80,6 +81,11 @@ _INTENT_KEYWORDS: dict[Intent, list[str]] = {
         "may puso ka ba", "robot ka ba", "tao ka ba", "sino ka talaga",
         "ganda mo", "maganda ka", "panget", "arte", "oa", "extra",
         "pautang", "wee", "kota", "aray ko",
+    ],
+    Intent.SIZE_CHART: [
+    "size chart", "size guide", "size reference", "boxer size chart",
+    "size table", "sukat chart", "size ng boxer",
+    "fitting chart", "size ko", "anong size ko", "size checker",
     ],
     Intent.SMALL_TALK: [
         "hello", "hi", "kumusta", "good morning", "good afternoon",

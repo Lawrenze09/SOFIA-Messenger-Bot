@@ -17,6 +17,8 @@ from core import (
     SofiaAgent,
     MSG_KEYWORD_HANDOVER,
     MSG_GUARDRAIL_HANDOVER,
+    MSG_SIZE_CHART,
+    SIZE_CHART_BOXER,
     GuardrailFailure,
     classify,
 )
@@ -251,23 +253,6 @@ def _process_message(psid: str, text: str, mid: str) -> None:
     intent = classify(text)
     log_intent(psid, session_id, intent.value, text)
 
-    # ── 5b. SIZE CHART INTERCEPTOR (Custom logic) ──
-    size_keywords = {"size", "sukat", "chart", "measurements", "dimensions", "fitting"}
-    if any(kw in text.lower() for kw in size_keywords):
-        logger.info(f"Size chart intent detected for {psid}")
-        
-        # 1. Friendly text intro
-        send_message(psid, "Sure! Heto ang aming Premium Boxer Briefs size chart para sa iyong reference: 📏")
-        
-        # 2. Ipadala ang mismong image mula sa GitHub assets mo
-        image_url = "https://raw.githubusercontent.com/Lawrenze09/SOFIA-Messenger-Bot/main/assets/size-chart-boxer.jpg"
-        send_image(psid, image_url)
-        
-        # 3. I-log ang event at tapusin ang process (Wag na dumaan sa AI)
-        log_message(psid, session_id, text, "[IMAGE] Size Chart Sent", 
-                    intent.value, time.time() - start_time)
-        return
-
     # ── 6a. Keyword handover or REFUND / COMPLAINT ──
     if agent.needs_keyword_handover(text) or intent in (
         Intent.REFUND_REQUEST,
@@ -288,6 +273,14 @@ def _process_message(psid: str, text: str, mid: str) -> None:
         send_admin_alert(psid, text, intent.value, f"Admin Inquiry: {intent.value}")
         log_message(psid, session_id, text, response,
                     intent.value, time.time() - start_time)
+        return
+    
+    # ── 6c. SIZE CHART — send image, bot stays active ──
+    if intent == Intent.SIZE_CHART:
+        send_message(psid, MSG_SIZE_CHART)
+        send_image(psid, SIZE_CHART_BOXER)
+        log_message(psid, session_id, text, MSG_SIZE_CHART,
+                   intent.value, time.time() - start_time)
         return
 
     # ── 7. PURCHASE — confirm + alert admin, bot stays active ──
