@@ -80,6 +80,17 @@ def webhook():
     except Exception:
         return "Bad Request", 400
 
+    for entry in body.get("entry", []):
+        for event in entry.get("messaging", []):
+            if event.get("message", {}).get("is_echo"):
+                text          = event["message"].get("text", "")
+                customer_psid = (event.get("recipient") or {}).get("id")
+                if text and customer_psid:
+                    if is_bot_reactivation(text):
+                        _handle_admin_echo(customer_psid, text)
+                    elif not event["message"].get("app_id"):
+                        _handle_admin_echo(customer_psid, text)
+
     executor.submit(_handle_payload, body)
     return jsonify({"status": "ok"}), 200
 
@@ -155,15 +166,8 @@ def _handle_payload(body: dict) -> None:
             if "read" in event or "delivery" in event:
                 continue
 
-            # ── Echo events — admin typing in Page Inbox ──
+            # ── Skip echoes — already handled synchronously in webhook() ──
             if event.get("message", {}).get("is_echo"):
-                text          = event["message"].get("text", "")
-                customer_psid = (event.get("recipient") or {}).get("id")
-                if text and customer_psid:
-                    if is_bot_reactivation(text):
-                        _handle_admin_echo(customer_psid, text)
-                    elif not event["message"].get("app_id"):
-                        _handle_admin_echo(customer_psid, text)
                 continue
 
             # ── Customer message ──
