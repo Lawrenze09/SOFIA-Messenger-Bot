@@ -200,7 +200,7 @@ sofia-bot/
 ### 1. Fork and clone the repository
 
 ```bash
-git clone https://github.com/Lawrenze09/SOFIA-RAG-enabled-conversational-commerce-middleware.git
+git clone https://github.com/Lawrenze09/SOFIA-Messenger-Bot.git
 cd sofia-bot
 ```
 
@@ -340,10 +340,15 @@ Customer: "may puso ka ba?"
 
 ## Author
 
-Built by [Your Name] — Junior AI Automation Engineer
+Built by Nazh Lawrenze Romero
 
 - GitHub: [Lawrenze09](https://github.com/Lawrenze09)
 - LinkedIn: [Lawrenze Romero](https://www.linkedin.com/in/lawrenze-romero-6b6871378/)
+
+## Privacy Policy
+
+This application is deployed on Facebook Messenger and complies with Meta's platform policies.
+[View Privacy Policy](https://lawrenze09.github.io/Hybrid-AI-Messenger-Bot/privacy.html)
 
 ---
 
