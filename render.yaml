@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: sofia-bot
+    runtime: python
+    region: singapore
+    plan: free
+
+    buildCommand: pip install -r requirements.txt
+
+    startCommand: >
+      gunicorn
+      "app.main:create_app()"
+      --config gunicorn.conf.py
+
+    healthCheckPath: /health
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+
+      - key: FLASK_ENV
+        value: production
+
+      # ── Set these in Render Dashboard → Environment ──
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: MYSQL_URI
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: PAGE_ACCESS_TOKEN
+        sync: false
+      - key: VERIFY_TOKEN
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: PINECONE_INDEX
+        sync: false

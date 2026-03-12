@@ -1,0 +1,24 @@
+# ── Web Framework ──
+flask>=3.0.0
+flask-limiter>=3.5.0
+
+# ── WSGI Server ──
+gunicorn>=21.2.0
+
+# ── AI / LLM ──
+google-genai>=0.1.0
+
+# ── Vector Search ──
+pinecone>=3.0.0
+
+# ── Database ──
+pymysql>=1.1.0
+
+# ── Cache / Session ──
+redis>=5.0.0
+
+# ── HTTP Client ──
+requests>=2.31.0
+
+# ── Environment ──
+python-dotenv>=1.0.0
