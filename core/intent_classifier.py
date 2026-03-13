@@ -51,16 +51,20 @@ _INTENT_KEYWORDS: dict[Intent, list[str]] = {
         "pano deliver", "dedeliver", "anong place", "anong location",
         "loc", "location",
     ],
-    Intent.PRICE_QUERY: [
-        "magkano", "how much", "price", "presyo", "halaga", "cost", "mag kano",
-    ],
-    # ── PURCHASE before PRODUCT_INQUIRY — critical ordering ──
     Intent.PURCHASE: [
         "bili na", "order na", "pabili", "kuha na", "gusto ko na",
         "pwede bang order", "pano mag order", "checkout",
         "how to order", "how to buy", "place order", "i'll take",
         "get ko na", "kukunin ko", "bibilhin ko", "bilhin ko na",
         "getlak", "g na yan", "g ko na", "bilhin", "buy",
+    ],
+    Intent.PRICE_QUERY: [
+        "magkano", "how much", "price", "presyo", "halaga", "cost", "mag kano",
+    ],
+    Intent.SIZE_CHART: [
+    "size chart", "size guide", "size reference", "boxer size chart",
+    "size table", "sukat chart", "size ng boxer",
+    "fitting chart", "size ko", "anong size ko", "size checker",
     ],
     Intent.PRODUCT_INQUIRY: [
         "available", "meron", "stock", "product", "item", "color",
@@ -81,11 +85,6 @@ _INTENT_KEYWORDS: dict[Intent, list[str]] = {
         "may puso ka ba", "robot ka ba", "tao ka ba", "sino ka talaga",
         "ganda mo", "maganda ka", "panget", "arte", "oa", "extra",
         "pautang", "wee", "kota", "aray ko",
-    ],
-    Intent.SIZE_CHART: [
-    "size chart", "size guide", "size reference", "boxer size chart",
-    "size table", "sukat chart", "size ng boxer",
-    "fitting chart", "size ko", "anong size ko", "size checker",
     ],
     Intent.SMALL_TALK: [
         "hello", "hi", "kumusta", "good morning", "good afternoon",
