@@ -63,8 +63,8 @@ _INTENT_KEYWORDS: dict[Intent, list[str]] = {
         "getlak", "g na yan", "g ko na", "bilhin", "buy",
     ],
     Intent.PRODUCT_INQUIRY: [
-        "available", "meron", "stock", "product", "item", "size", "color",
-        "kulay", "sukat", "avail", "colorway", "pants", "hoodie", "jacket",
+        "available", "meron", "stock", "product", "item", "color",
+        "kulay", "avail", "colorway", "pants", "hoodie", "jacket",
         "balaclava", "harrington", "baggy", "premium", "premiums",
         "order", "gusto", "paorder", "pa order", "gsm", "crop", "half zip",
         "pullover", "heavy cotton", "ribbings", "streetwear", "dickies",
