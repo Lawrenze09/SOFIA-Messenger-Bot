@@ -51,7 +51,7 @@ MSG_GUARDRAIL_HANDOVER = (
 
 SIZE_CHART_BOXER  = "https://raw.githubusercontent.com/Lawrenze09/SOFIA-Messenger-Bot/main/assets/size-chart-boxer.jpg"
 
-MSG_SIZE_CHART = "Sure boss! Heto ang aming size chart para sa inyong reference "
+MSG_SIZE_CHART = "Sa ngayon Boxer palang ang meron kaming Size Chart para sa inyong reference"
 
 # ─────────────────────────────────────────────
 # SOFIA AGENT
