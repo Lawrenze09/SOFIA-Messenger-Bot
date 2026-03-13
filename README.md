@@ -440,6 +440,10 @@ Built by **Nazh Lawrenze Romero**
 - GitHub: [@Lawrenze09](https://github.com/Lawrenze09)
 - LinkedIn: [Lawrenze Romero](https://www.linkedin.com/in/lawrenze-romero-6b6871378/)
 
+## Live Deployment
+
+Sofia is actively deployed for [Ace Apparel](https://www.facebook.com/profile.php?id=61579918910576) — a streetwear brand based in the Philippines. Message the page directly to interact with Sofia in production.
+
 ---
 
 ## License
