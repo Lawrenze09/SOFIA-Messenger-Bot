@@ -16,7 +16,6 @@ from core import (
     Intent,
     SofiaAgent,
     MSG_KEYWORD_HANDOVER,
-    MSG_GUARDRAIL_HANDOVER,
     MSG_SIZE_CHART,
     SIZE_CHART_BOXER,
     GuardrailFailure,
@@ -29,6 +28,7 @@ from services.session_service import (
     set_session_state,
     get_or_create_session_id,
     is_bot_reactivation,
+    is_first_message,
     is_spam,
     apply_message_gap,
     reset_session,
@@ -205,6 +205,49 @@ def _handle_admin_echo(customer_psid: str, text: str) -> None:
 
 
 # ─────────────────────────────────────────────
+# WELCOME MESSAGE BUILDER
+# ─────────────────────────────────────────────
+
+def _send_welcome(psid: str) -> None:
+    """
+    Send a one-time welcome message to a first-time customer.
+    Shows all current products from TiDB and explains how to
+    reach a human assistant.
+
+    Args:
+        psid: Facebook PSID of the new customer.
+    """
+    from database.repository import search_products
+    products = search_products("")
+    product_lines = []
+
+    for p in products:
+        product_lines.append(
+            f"• {p['name']}\n"
+            f"  {p['description']}\n"
+            f"  Size: {p['size']}\n"
+            f"  ₱{float(p['price']):.2f}"
+        )
+
+    product_text = "\n\n".join(product_lines) if product_lines else (
+        "Pasensya boss, wala kaming products na available ngayon."
+    )
+
+    welcome = (
+        f"Hello boss! Ako si Sofia, ang assistant ng Ace Apparel.\n\n"
+        f"Heto ang mga products namin ngayon:\n\n"
+        f"{product_text}\n\n"
+        f"Kung kailangan mo ng human assistance "
+        f"type lang 'admin'.\n"
+        f"Para sa kahit anong tanong sa products namin, "
+        f"nandito lang ako!"
+    )
+
+    send_message(psid, welcome)
+    logger.info(f"Welcome message sent to new customer {psid}")
+
+
+# ─────────────────────────────────────────────
 # CORE MESSAGE PROCESSOR
 # ─────────────────────────────────────────────
 
@@ -213,47 +256,54 @@ def _process_message(psid: str, text: str, mid: str) -> None:
     Main message processing pipeline.
 
     Order of operations:
-    1. Silent message drop
-    2. Spam detection
-    3. Message rate gap enforcement
-    4. Prompt injection check
-    5. Intent classification
-    6. Escalation routing (refund, complaint, wholesale, shipping)
-    7. Purchase handling
-    8. Rule-based engine
-    9. AI fallback with guardrails
+    1.  First message detection — send welcome + products
+    2.  Silent message drop
+    3.  Spam detection
+    4.  Message rate gap enforcement
+    5.  Prompt injection check
+    6.  Intent classification
+    7a. Keyword handover / REFUND / COMPLAINT → escalate + pause
+    7b. WHOLESALE / SHIPPING → rule reply + pause + alert
+    7c. SIZE CHART → send image, bot stays active
+    8.  PURCHASE intent → LLM response + email admin immediately
+    9.  All other intents → TiDB first, LLM fallback
+    10. Guardrail failure → Sofia-voiced fallback + products + pause
     """
     start_time = time.time()
 
-    # ── 1. Silent drop ──
+    # ── 1. First message — send welcome, then continue processing ──
+    if is_first_message(psid):
+        _send_welcome(psid)
+
+    # ── 2. Silent drop ──
     if is_silent_message(text):
         logger.info(f"Silent message dropped for {psid}")
         return
 
-    # ── 2. Spam check ──
+    # ── 3. Spam check ──
     if is_spam(psid):
         set_session_state(psid, SessionState.HUMAN_ACTIVE)
         logger.warning(f"Spam block — session paused for {psid}")
         return
 
-    # ── 3. Rate gap ──
+    # ── 4. Rate gap ──
     apply_message_gap(psid)
 
     session_id = get_or_create_session_id(psid)
 
-    # ── 4. Injection check ──
+    # ── 5. Injection check ──
     if is_prompt_injection(text):
         send_message(psid,
-            "Hindi po ako makapag-process ng mensaheng iyan. "
-            "Subukan po ulit na mag-type ng inyong tanong."
+            "Hm, di ko ma-gets yung sinabi mo boss — "
+            "subukan mo ulit, baka may typo lang?"
         )
         return
 
-    # ── 5. Intent classification ──
+    # ── 6. Intent classification ──
     intent = classify(text)
     log_intent(psid, session_id, intent.value, text)
 
-    # ── 6a. Keyword handover or REFUND / COMPLAINT ──
+    # ── 7a. Keyword handover or REFUND / COMPLAINT ──
     if agent.needs_keyword_handover(text) or intent in (
         Intent.REFUND_REQUEST,
         Intent.COMPLAINT,
@@ -265,45 +315,58 @@ def _process_message(psid: str, text: str, mid: str) -> None:
                     intent.value, time.time() - start_time)
         return
 
-    # ── 6b. WHOLESALE / SHIPPING — reply then pause ──
+    # ── 7b. WHOLESALE / SHIPPING — rule reply + pause + alert ──
     if intent in (Intent.WHOLE_SALE, Intent.SHIPPING_INFO):
         response, _ = agent.build_response(text, intent)
         send_message(psid, response)
         set_session_state(psid, SessionState.HUMAN_ACTIVE)
-        send_admin_alert(psid, text, intent.value, f"Admin Inquiry: {intent.value}")
+        send_admin_alert(psid, text, intent.value,
+                         f"Admin Inquiry: {intent.value}")
         log_message(psid, session_id, text, response,
                     intent.value, time.time() - start_time)
         return
-    
-    # ── 6c. SIZE CHART — send image, bot stays active ──
+
+    # ── 7c. SIZE CHART — send image, bot stays active ──
     if intent == Intent.SIZE_CHART:
         send_message(psid, MSG_SIZE_CHART)
         send_image(psid, SIZE_CHART_BOXER)
         log_message(psid, session_id, text, MSG_SIZE_CHART,
-                   intent.value, time.time() - start_time)
+                    intent.value, time.time() - start_time)
         return
 
-    # ── 7. PURCHASE — confirm + alert admin, bot stays active ──
+    # ── 8. PURCHASE — LLM handles response, email admin immediately ──
     if intent == Intent.PURCHASE:
-        response, _ = agent.build_response(text, intent)
+        response, failure = agent.build_response(text, intent)
+        if failure != GuardrailFailure.NONE:
+            fallback = agent.build_guardrail_fallback()
+            send_message(psid, fallback)
+            set_session_state(psid, SessionState.HUMAN_ACTIVE)
+            send_admin_alert(psid, text, intent.value,
+                             f"Guardrail Failure: {failure.value}")
+            log_message(psid, session_id, text, fallback,
+                        intent.value, time.time() - start_time)
+            return
         send_message(psid, response)
         send_admin_alert(psid, text, intent.value, "Purchase Intent")
         log_message(psid, session_id, text, response,
                     intent.value, time.time() - start_time)
         return
 
-    # ── 8 & 9. Rule-based engine → AI fallback + guardrails ──
+    # ── 9. All other intents — TiDB first, LLM fallback ──
     response, failure = agent.build_response(text, intent)
 
+    # ── 10. Guardrail failure — Sofia-voiced fallback + products ──
     if failure != GuardrailFailure.NONE:
-        send_message(psid, MSG_GUARDRAIL_HANDOVER)
+        fallback = agent.build_guardrail_fallback()
+        send_message(psid, fallback)
         set_session_state(psid, SessionState.HUMAN_ACTIVE)
         send_admin_alert(psid, text, intent.value,
                          f"Guardrail Failure: {failure.value}")
-        log_message(psid, session_id, text, MSG_GUARDRAIL_HANDOVER,
+        log_message(psid, session_id, text, fallback,
                     intent.value, time.time() - start_time)
         return
 
     send_message(psid, response)
     log_message(psid, session_id, text, response,
                 intent.value, time.time() - start_time)
+    

@@ -56,15 +56,15 @@ _INTENT_KEYWORDS: dict[Intent, list[str]] = {
         "pwede bang order", "pano mag order", "checkout",
         "how to order", "how to buy", "place order", "i'll take",
         "get ko na", "kukunin ko", "bibilhin ko", "bilhin ko na",
-        "getlak", "g na yan", "g ko na", "bilhin", "buy",
+        "getlak", "g na yan", "g ko na", "bilhin",
     ],
     Intent.PRICE_QUERY: [
         "magkano", "how much", "price", "presyo", "halaga", "cost", "mag kano",
     ],
     Intent.SIZE_CHART: [
-    "size chart", "size guide", "size reference", "boxer size chart",
-    "size table", "sukat chart", "size ng boxer",
-    "fitting chart", "size ko", "anong size ko", "size checker",
+        "size chart", "size guide", "size reference", "boxer size chart",
+        "size table", "sukat chart", "size ng boxer",
+        "fitting chart", "size ko", "anong size ko", "size checker",
     ],
     Intent.PRODUCT_INQUIRY: [
         "available", "meron", "stock", "product", "item", "color",
@@ -124,6 +124,8 @@ def classify(message: str) -> Intent:
         logger.info(f"Intent classified by Gemini: {intent.value}")
         return intent
     except ValueError:
-        logger.warning(f"Gemini returned unknown label: '{label}' — defaulting to UNKNOWN")
+        logger.warning(
+            f"Gemini returned unknown label: '{label}' — defaulting to UNKNOWN"
+        )
         return Intent.UNKNOWN
     

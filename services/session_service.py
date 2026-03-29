@@ -107,6 +107,33 @@ def get_or_create_session_id(psid: str) -> str:
 
 
 # ─────────────────────────────────────────────
+# FIRST MESSAGE DETECTION
+# ─────────────────────────────────────────────
+
+def is_first_message(psid: str) -> bool:
+    """
+    Check if this is the customer's first ever message.
+    Uses a permanent Redis key — once set, never expires.
+    Returns True only once per PSID, then marks them as seen.
+
+    Args:
+        psid: Facebook PSID.
+
+    Returns:
+        True if this is the customer's first message, False otherwise.
+    """
+    r   = get_redis()
+    key = f"seen:{psid}"
+
+    if r.exists(key):
+        return False
+
+    # ── Mark as seen permanently — no TTL ──
+    r.set(key, "1")
+    return True
+
+
+# ─────────────────────────────────────────────
 # BOT REACTIVATION
 # ─────────────────────────────────────────────
 
@@ -215,6 +242,8 @@ def reset_session(psid: str) -> None:
     """
     Clear all Redis keys for a user.
     Used by the /reset/<psid> admin endpoint.
+    Note: does not clear the seen:{psid} key —
+    the welcome message should only fire once ever.
 
     Args:
         psid: Facebook PSID to reset.
@@ -228,3 +257,4 @@ def reset_session(psid: str) -> None:
         f"email_count:{psid}",
     )
     logger.info(f"Session fully reset for {psid}")
+    

@@ -4,15 +4,21 @@ core/sofia_agent.py
 SofiaAgent — the central brain of the chatbot.
 
 Responsibilities:
-- Rule-based response engine (no LLM cost)
+- Rule-based response engine (guaranteed floor, no LLM cost)
+- LLM as primary for conversation, rule-based as fallback
 - RAG context injection for AI responses
 - Guardrail enforcement on AI output
 - Handover detection and escalation routing
 - Product formatting for TiDB results
 
-All personality, tone, and response policies are
-configured here. Swap the system prompt or rule
-responses without touching any other module.
+Architecture:
+- PRODUCT_INQUIRY / PRICE_QUERY → TiDB SQL always (zero hallucination)
+  └── Product found   → Rule-based format, no LLM
+  └── Product missing → Gemini + RAG context
+- SMALL_TALK / PLAYFUL / BANTER / UNKNOWN → Gemini primary
+  └── Gemini fails    → Rule-based safe fallback
+- "buy" exact         → Rule-based order confirmation
+- Guardrail failure   → Rule-based safe fallback + product display
 """
 
 from core.guardrails import GuardrailFailure, run_guardrails
@@ -36,22 +42,67 @@ _HANDOVER_KEYWORDS: list[str] = [
 
 
 # ─────────────────────────────────────────────
-# HANDOVER MESSAGES
+# SYSTEM MESSAGES
 # ─────────────────────────────────────────────
 
 MSG_KEYWORD_HANDOVER = (
-    "Pasensya na po boss... "
-    "alert ko na si admin agad para matulungan kayo."
+    "Pasensya na boss, ire-refer kita sa team namin — "
+    "mag-me-message sila sa'yo agad."
 )
 
 MSG_GUARDRAIL_HANDOVER = (
-    "Hindi pa po ako sure kung ano isasagot sa concern nyo boss... "
-    "alert ko nalang si admin para matulungan po kayo agad."
+    "Ay sorry boss, may nangyari sa system ko bigla — "
+    "pero heto na ang products namin para hindi ka mahintay:\n\n"
+    "{products}\n\n"
+    "Kung may gusto kang i-order o kailangan mo ng tulong, "
+    "type mo lang 'admin' para makakonekta ka sa team. "
+    "Nandito lang ako kung may tanong ka sa products!"
 )
 
-SIZE_CHART_BOXER  = "https://raw.githubusercontent.com/Lawrenze09/SOFIA-Messenger-Bot/main/assets/size-chart-boxer.jpg"
+MSG_GUARDRAIL_NO_PRODUCTS = (
+    "Ay sorry boss, may nangyari sa system ko bigla. "
+    "Type mo lang 'admin' para makakonekta ka sa team namin agad."
+)
 
-MSG_SIZE_CHART = "Sa ngayon Boxer palang ang meron kaming Size Chart para sa inyong reference"
+SIZE_CHART_BOXER = (
+    "https://raw.githubusercontent.com/Lawrenze09/"
+    "SOFIA-Messenger-Bot/main/assets/size-chart-boxer.jpg"
+)
+
+MSG_SIZE_CHART = (
+    "Sa ngayon Boxer palang ang meron kaming "
+    "Size Chart para sa inyong reference."
+)
+
+MSG_BUY_CONFIRMATION = (
+    "Buy confirmed boss! Si Bigboss na ang bahala — "
+    "mag-me-message sila sa'yo agad para sa order mo."
+)
+
+MSG_PURCHASE_PROMPT = (
+    "Noted boss! I-type mo lang 'buy' para ma-confirm ang order "
+    "at ma-alert ko na si Bigboss. "
+    "Mag-me-message sila sa'yo agad."
+)
+
+MSG_WHOLESALE = (
+    "Usapang negosyo 'to boss — solid! "
+    "Iko-connect kita sa team para sa wholesale pricing. "
+    "Type mo lang 'admin' para makausap sila agad."
+)
+
+MSG_SHIPPING = (
+    "Para sa shipping details boss, "
+    "mas maganda kung makausap mo directly ang team. "
+    "Type mo lang 'admin' at mag-re-reach out sila sa'yo."
+)
+
+MSG_LLM_FALLBACK = (
+    "Ay sorry boss, may technical issue ako ngayon. "
+    "Type mo lang 'admin' kung kailangan mo ng tulong, "
+    "o subukan ulit mamaya."
+)
+
 
 # ─────────────────────────────────────────────
 # SOFIA AGENT
@@ -66,50 +117,62 @@ class SofiaAgent:
 
     Usage:
         agent = SofiaAgent()
-        response, needs_handover, needs_email = agent.respond(text, intent)
+        response, failure = agent.build_response(text, intent)
     """
 
     system_prompt: str = """
 ROLE
-You are Sofia, the street-smart and witty "Reyna ng Kanto" sales whiz of Ace Apparel.
-You talk like a trusted "tropa" from the neighborhood—confident, sharp, and charismatic.
-You are NOT a formal bot; you are the girl who knows all the best drip in the area.
+You are Sofia, the in-house assistant of Ace Apparel —
+a Filipino streetwear brand. You're not a formal bot.
+You're more like that one friend who actually knows the fits
+and will give you a straight answer.
 
-TONE & STYLE
-- Language: Natural Taglish (Kanto-style). Avoid being "pabebe" or robotic.
-- Address: Always use "boss". Strictly NEVER use "sir", "ma'am", or "lodi".
-- Length: Max 2-3 sentences only. Keep it snappy.
-- Vocabulary: Use "solid", "mabisa", "panalo", "goods", "swabe".
+TONE
+- Taglish, natural. Not forced, not trying too hard.
+- Warm but not overexcited. Chill but not cold.
+- Address customers as "boss" — always.
+  Never "sir", "ma'am", or "lodi".
+- Keep it short. 2 to 3 sentences max per reply.
+- If you have nothing useful to add, don't add it.
 
-PERSONALITY GUIDELINES
-1. Humor First: Start with a quick hirit or "tropa" vibe before pivoting to the product.
-2. The "Mimic" Rule: If the customer mimics you, say "Uy, gumaganyan ka na ah! [Mimic back] ngani! Bili ka na boxer malamig sa itlog to"
-3. Standard Outro: Always end with a soft product push — rotate naturally: "Hoodie boss baka nilalamig ka?", "Meron kaming Harrington, baka trip mo?", "Baggy Pants namin solid yan for any fit!"
+WHAT YOU NEVER DO
+- Never invent prices, sizes, or stock availability.
+- Never use words like "absolutely", "certainly",
+  "of course" — that's bot language.
+- Never use profanity even if the customer does.
+- Never force slang just to sound cool.
+  If it doesn't fit naturally, skip it.
+- Never use "guaranteed" or claim to be 100% sure of anything.
+
+WHAT YOU ALWAYS DO
+- Use only the product data provided to you in the context block.
+- If a product isn't in the context, say you don't
+  have it — don't guess.
+- If a customer has a complaint or wants a refund,
+  tell them to type 'admin' to reach the team.
+- End product replies with a soft, natural nudge —
+  not a scripted sales line.
+
+EXAMPLE TONE (use this as reference, not a script)
+Customer: "may hoodie ba kayo?"
+Sofia: "Meron boss — heavy cotton, solid ang quality.
+        Anong size mo para makita ko kung available?"
+
+Customer: "magkano?"
+Sofia: "Depende sa item boss, anong trip mo?
+        Ilabas ko na details."
+
+Customer: "pangit naman ng design"
+Sofia: "Haha tama ka boss,
+        di talaga pang-lahat ang every piece.
+        May iba pa kaming options — gusto mo tingnan?"
 
 RAG RULES
-- Use provided product context ONLY.
-- Missing Info: "Pasensya na boss, wala kami nyan sa ngayon eh. Meron lang kami Hoodies, Baggy Pants, Harrington tsaka Boxer Briefs — bigay ko agad sayo details pag may natripan ka."
-- Strictly No Hallucination: Never invent prices, sizes, or stocks.
-- Profanity Filter: Ride with the customer's jokes but NEVER use profanity (gago, kupal, etc.). Keep it classy-kanto.
+- Use ONLY the product data inside [STRICT CONTEXT FROM DATABASE].
+- If no context is provided, tell the customer honestly
+  that you don't have that item right now.
+- Never mix context data with anything you assume from training.
 """.strip()
-
-    # ── Static rule map — keyword triggers ──
-    _RULE_MAP: dict[str, str] = {
-        "menu": (
-            "Welcome sa Ace Apparel, boss! Sofia 'to ang pinaka ma agnas mong "
-            "AI assistant. Lapag ka lang ng tanong—basta usapang products ng Ace Apparel kabisado ko yan, "
-            "presyong tropa siguradong hindi ka mapapahiya sa porma. "
-            "Type 'admin' lang kung kailangan mo si Bigboss. "
-        ),
-    }
-
-    # ── Menu message reused for SMALL_TALK ──
-    _MSG_MENU: str = (
-        "Welcome sa Ace Apparel, boss! Sofia 'to ang pinaka ma agnas mong "
-        "AI assistant. Lapag ka lang ng tanong—basta usapang products ng Ace Apparel kabisado ko yan, "
-        "presyong tropa siguradong hindi ka mapapahiya sa porma. "
-        "Type 'admin' lang kung kailangan mo si Bigboss. "
-    )
 
     # ─────────────────────────────────────────
     # PUBLIC INTERFACE
@@ -136,9 +199,9 @@ RAG RULES
         """
         Generate a response for a given message and intent.
 
-        Tries rule-based engine first (zero cost).
-        Falls back to Gemini with RAG context if no rule matches.
-        Runs guardrails on all AI-generated responses.
+        Product intents → TiDB SQL always (no LLM).
+        Everything else → Gemini primary, rule-based fallback.
+        Guardrails run on all AI-generated responses.
 
         Args:
             message: Raw customer message.
@@ -148,28 +211,85 @@ RAG RULES
             Tuple of (response_text, GuardrailFailure).
             GuardrailFailure.NONE means the response is safe to send.
         """
+        # ── Product intents are always rule-based, no LLM ──
+        if intent in (Intent.PRODUCT_INQUIRY, Intent.PRICE_QUERY):
+            return self._handle_product_intent(message)
+
+        # ── Static rule-based exits ──
         rule_response = self._try_rule_based(message, intent)
         if rule_response:
             return rule_response, GuardrailFailure.NONE
 
-        # ── AI fallback for PLAYFUL, UNKNOWN, and unmatched intents ──
+        # ── LLM primary for everything else ──
         try:
             ai_response = self._generate_with_context(message, intent)
+            failure = run_guardrails(ai_response)
+            return ai_response, failure
+
         except Exception as exc:
             logger.error(f"AI generation failed: {exc}")
-            # Last resort — product search before showing error
-            products = search_products(message)
-            fallback  = self._format_product_reply(products)
-            if fallback:
-                return fallback, GuardrailFailure.NONE
-            return (
-                "Pasensya na boss, may technical issue po kami ngayon. "
-                "Subukan po ulit mamaya.",
-                GuardrailFailure.NONE,
-            )
+            return MSG_LLM_FALLBACK, GuardrailFailure.NONE
 
-        failure = run_guardrails(ai_response)
-        return ai_response, failure
+    def build_guardrail_fallback(self) -> str:
+        """
+        Build the guardrail fallback message with current products.
+        Called by routes.py when a guardrail failure is detected.
+
+        Returns:
+            Formatted fallback message string with product list injected.
+        """
+        products = search_products("")
+        product_text = self._format_product_reply(products)
+
+        if product_text:
+            return MSG_GUARDRAIL_HANDOVER.format(products=product_text)
+        return MSG_GUARDRAIL_NO_PRODUCTS
+
+    # ─────────────────────────────────────────
+    # PRODUCT HANDLER — 100% RULE-BASED
+    # ─────────────────────────────────────────
+
+    def _handle_product_intent(
+        self, message: str
+    ) -> tuple[str, GuardrailFailure]:
+        """
+        Handle PRODUCT_INQUIRY and PRICE_QUERY intents.
+        TiDB SQL is always the source — LLM never touches product facts.
+        Falls back to Gemini + RAG only when TiDB returns no match.
+
+        Args:
+            message: Raw customer message.
+
+        Returns:
+            Tuple of (response_text, GuardrailFailure).
+        """
+        budget   = self._extract_budget(message)
+        products = search_products(message, max_price=budget)
+        reply    = self._format_product_reply(products)
+
+        if reply:
+            # ── Product found in TiDB — pure rule-based, no LLM ──
+            return reply, GuardrailFailure.NONE
+
+        # ── Product not in TiDB — Gemini + RAG context ──
+        try:
+            context = retrieve_product_context(message)
+            context_block = (
+                f"\n[STRICT CONTEXT FROM DATABASE]:\n{context}\n"
+                if context else
+                "\n[SYSTEM ALERT]: No matching product found in database. "
+                "Tell the customer honestly that we don't carry that item. "
+                "DO NOT hallucinate features, prices, or availability.\n"
+            )
+            ai_response = generate_response(
+                message, self.system_prompt, context_block
+            )
+            failure = run_guardrails(ai_response)
+            return ai_response, failure
+
+        except Exception as exc:
+            logger.error(f"AI product fallback failed: {exc}")
+            return MSG_LLM_FALLBACK, GuardrailFailure.NONE
 
     # ─────────────────────────────────────────
     # RULE-BASED ENGINE
@@ -177,69 +297,35 @@ RAG RULES
 
     def _try_rule_based(self, message: str, intent: Intent) -> str | None:
         """
-        Attempt to resolve the message using deterministic rules.
-        Returns None to signal AI fallback is needed.
+        Handle intents with guaranteed deterministic responses.
+        Returns None to signal LLM should handle this message.
 
         Args:
             message: Raw customer message.
             intent:  Classified Intent enum value.
 
         Returns:
-            Response string, or None if no rule matched.
+            Response string, or None if LLM should handle it.
         """
         lower = message.lower().strip()
 
-        # ── Static keyword map ──
-        for trigger, response in self._RULE_MAP.items():
-            if trigger in lower:
-                return response
-
-        # ── Buy confirmation — typed exactly "buy" ──
+        # ── "buy" exact — purchase confirmation ──
         if lower == "buy":
-            return (
-                "Buy confirmed! Si Bigboss na bahala para asikasuhin ang order niyo "
-                "Salamat sa tiwala, bossing!"
-            )
+            return MSG_BUY_CONFIRMATION
 
-        if intent == Intent.SMALL_TALK:
-            return self._MSG_MENU
-
+        # ── Purchase intent — prompt to confirm ──
         if intent == Intent.PURCHASE:
-            return (
-                "Noted boss! Para lang po sa confirmation type lang po ang 'buy' "
-                "para po ma alert ko na si Bigboss ngayon "
-                "at ma process ang order mo. Mag-me-message po sila sa'yo agad. "
-            )
+            return MSG_PURCHASE_PROMPT
 
+        # ── Wholesale — escalate ──
         if intent == Intent.WHOLE_SALE:
-            return (
-                "Usapang negosyo ba 'to, boss? Solid! Ilalapit kita sa 'Source' natin "
-                "para sa mabisang wholesale pricing. Siya ang bahala sa 'yo para pareho "
-                "tayong kumita. Chill ka lang dyan, mas mabilis pa 'yan sa tropa mong "
-                "ninja 'pag may kailangan ka, hindi mo mahagilap! "
-                "aray ko po! kamot ulo"
-            )
+            return MSG_WHOLESALE
 
+        # ── Shipping — escalate ──
         if intent == Intent.SHIPPING_INFO:
-            return (
-                "Usapang shipping ba boss? Di ko alam yan ih! "
-                "Connect na kita kay Bigboss para ma-asikaso natin yan agad. "
-                "Chill ka lang dyan, mas mabilis pa 'yan sa sahod mong dumaan lang mag-reply. "
-                "aray ko po!"
-            )
+            return MSG_SHIPPING
 
-        if intent in (Intent.PRODUCT_INQUIRY, Intent.PRICE_QUERY):
-            budget   = self._extract_budget(message)
-            products = search_products(message, max_price=budget)
-            reply    = self._format_product_reply(products)
-            if reply:
-                return reply
-            return None
-
-        if intent == Intent.UNKNOWN or intent == Intent.BANTER:
-            products = search_products(message)
-            return self._format_product_reply(products)  # None if no match → AI fallback
-
+        # ── Everything else — LLM handles it ──
         return None
 
     # ─────────────────────────────────────────
@@ -248,7 +334,8 @@ RAG RULES
 
     def _generate_with_context(self, message: str, intent: Intent) -> str:
         """
-        Build context block from RAG and call Gemini.
+        Call Gemini for non-product intents.
+        No RAG needed here — context is conversational only.
 
         Args:
             message: Customer message.
@@ -257,18 +344,12 @@ RAG RULES
         Returns:
             Raw Gemini response text.
         """
-        context = ""
-        if intent in (Intent.PRODUCT_INQUIRY, Intent.PRICE_QUERY):
-            context = retrieve_product_context(message)
-
         context_block = (
-            f"\n[STRICT CONTEXT FROM DATABASE]:\n{context}\n"
-            if context else
-            "\n[SYSTEM ALERT]: No matching product found in database. "
-            "Tell the customer politely that we don't have this item yet. "
-            "DO NOT hallucinate features.\n"
+            "\n[CONTEXT]: This is a casual conversation. "
+            "Respond naturally as Sofia. "
+            "Do not invent product details unless they are "
+            "provided in a context block.\n"
         )
-
         return generate_response(message, self.system_prompt, context_block)
 
     # ─────────────────────────────────────────
@@ -292,24 +373,23 @@ RAG RULES
             p = products[0]
             return (
                 f"Meron kaming {p['name']} boss!\n"
-                f"{p['description']} — panalo, hindi tinipid ang quality!\n"
+                f"{p['description']}\n"
                 f"Available sa size: {p['size']}\n"
-                f"₱{float(p['price']):.2f} nalang, presyong tropa na 'yan!\n\n"
-                f"Sabihan mo lang ako kung ge-get mo na para "
-                f"ma-reserve ko agad sa'yo!"
+                f"₱{float(p['price']):.2f} — "
+                f"sabihan mo lang ako kung ge-get mo na."
             )
 
-        lines = ["Ito na boss, latag ko na lahat para 'di ka na mahirapan:\n"]
+        lines = ["Heto boss, lahat ng options namin:\n"]
         for p in products:
             lines.append(
                 f"• {p['name']}\n"
-                f"{p['description']}\n"
-                f"Size: {p['size']}\n"
-                f"₱{float(p['price']):.2f} ONLY!\n"
+                f"  {p['description']}\n"
+                f"  Size: {p['size']}\n"
+                f"  ₱{float(p['price']):.2f}\n"
             )
-        lines.append("Pili ka lang boss, solid lahat 'yan!")
+        lines.append("Pili ka lang boss, anong trip mo?")
         return "\n".join(lines)
-    
+
     # ─────────────────────────────────────────
     # BUDGET EXTRACTION
     # ─────────────────────────────────────────
@@ -331,3 +411,4 @@ RAG RULES
         if match:
             return float(match.group(1))
         return None
+    
