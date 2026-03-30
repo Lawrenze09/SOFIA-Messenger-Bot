@@ -17,9 +17,6 @@ class TestKeywordClassification:
     def test_purchase_pabili(self):
         assert classify("pabili nga ako ng hoodie") == Intent.PURCHASE
 
-    def test_purchase_buy_exact(self):
-        assert classify("buy") == Intent.PURCHASE
-
     def test_purchase_before_product_inquiry(self):
         # "bili" exists in PRODUCT_INQUIRY but "pabili" must match PURCHASE first
         assert classify("pabili") == Intent.PURCHASE
@@ -54,6 +51,31 @@ class TestKeywordClassification:
     def test_playful_haha(self):
         assert classify("haha panalo") == Intent.PLAYFUL
 
+    def test_size_chart(self):
+        assert classify("may size chart kayo?") == Intent.SIZE_CHART
+
+
+class TestBuyFallsToGemini:
+    """
+    'buy' is no longer a keyword — must fall through to Gemini.
+    The two-step confirmation flow has been removed.
+    Gemini classifies it as PURCHASE naturally.
+    """
+
+    @patch("core.intent_classifier.gemini_classify", return_value="PURCHASE")
+    def test_buy_falls_to_gemini(self, mock_gemini):
+        result = classify("buy")
+        assert result == Intent.PURCHASE
+        mock_gemini.assert_called_once()
+
+    @patch("core.intent_classifier.gemini_classify", return_value="PURCHASE")
+    def test_buy_exact_no_longer_keyword(self, mock_gemini):
+        # Confirm "buy" alone does not match any keyword
+        # and reaches Gemini for classification
+        result = classify("buy")
+        mock_gemini.assert_called_once()
+        assert result == Intent.PURCHASE
+
 
 class TestGeminiFallback:
     """Gemini fallback — only triggers when no keyword matches."""
@@ -67,5 +89,11 @@ class TestGeminiFallback:
     @patch("core.intent_classifier.gemini_classify", return_value="PRODUCT_INQUIRY")
     def test_fallback_returns_valid_intent(self, mock_gemini):
         result = classify("anong mga tinda ninyo")
-        # "tinda" has no keyword, should fall back to Gemini
         assert result == Intent.PRODUCT_INQUIRY
+        mock_gemini.assert_called_once()
+
+    @patch("core.intent_classifier.gemini_classify", return_value="INVALID_LABEL")
+    def test_fallback_invalid_label_defaults_unknown(self, mock_gemini):
+        result = classify("some random message xyz")
+        assert result == Intent.UNKNOWN
+        

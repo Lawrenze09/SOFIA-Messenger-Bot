@@ -55,13 +55,13 @@ MSG_GUARDRAIL_HANDOVER = (
     "pero heto na ang products namin para hindi ka mahintay:\n\n"
     "{products}\n\n"
     "Kung may gusto kang i-order o kailangan mo ng tulong, "
-    "type mo lang 'admin' para makakonekta ka sa team. "
+    "type mo lang 'admin' para ma alert ko agad ang admin. "
     "Nandito lang ako kung may tanong ka sa products!"
 )
 
 MSG_GUARDRAIL_NO_PRODUCTS = (
     "Ay sorry boss, may nangyari sa system ko bigla. "
-    "Type mo lang 'admin' para makakonekta ka sa team namin agad."
+    "Type mo lang 'admin' para ma alert ko agad ang admin."
 )
 
 SIZE_CHART_BOXER = (
@@ -72,17 +72,6 @@ SIZE_CHART_BOXER = (
 MSG_SIZE_CHART = (
     "Sa ngayon Boxer palang ang meron kaming "
     "Size Chart para sa inyong reference."
-)
-
-MSG_BUY_CONFIRMATION = (
-    "Buy confirmed boss! Si Bigboss na ang bahala — "
-    "mag-me-message sila sa'yo agad para sa order mo."
-)
-
-MSG_PURCHASE_PROMPT = (
-    "Noted boss! I-type mo lang 'buy' para ma-confirm ang order "
-    "at ma-alert ko na si Bigboss. "
-    "Mag-me-message sila sa'yo agad."
 )
 
 MSG_WHOLESALE = (
@@ -309,14 +298,6 @@ RAG RULES
         """
         lower = message.lower().strip()
 
-        # ── "buy" exact — purchase confirmation ──
-        if lower == "buy":
-            return MSG_BUY_CONFIRMATION
-
-        # ── Purchase intent — prompt to confirm ──
-        if intent == Intent.PURCHASE:
-            return MSG_PURCHASE_PROMPT
-
         # ── Wholesale — escalate ──
         if intent == Intent.WHOLE_SALE:
             return MSG_WHOLESALE
@@ -374,9 +355,9 @@ RAG RULES
             return (
                 f"Meron kaming {p['name']} boss!\n"
                 f"{p['description']}\n"
-                f"Available sa size: {p['size']}\n"
-                f"₱{float(p['price']):.2f} — "
-                f"sabihan mo lang ako kung ge-get mo na."
+                f"Available sa size na {p['size']}\n"
+                f"₱{float(p['price']):.2f} nalang"
+                f"sabihan mo lang ako kung kukunin mo na."
             )
 
         lines = ["Heto boss, lahat ng options namin:\n"]
@@ -387,7 +368,7 @@ RAG RULES
                 f"  Size: {p['size']}\n"
                 f"  ₱{float(p['price']):.2f}\n"
             )
-        lines.append("Pili ka lang boss, anong trip mo?")
+        lines.append("Sabihan mo lang ako kung ano trip mo")
         return "\n".join(lines)
 
     # ─────────────────────────────────────────

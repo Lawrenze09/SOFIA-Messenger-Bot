@@ -33,8 +33,9 @@ class TestRuleBasedResponses:
     """Rule-based engine — guaranteed deterministic exits."""
 
     def test_purchase_intent_uses_llm(self, agent):
-        with patch("core.sofia_agent.generate_response",
-                   return_value="Noted boss! Anong size mo?") as mock_gen:
+        with patch("core.sofia_agent.search_products", return_value=[]), \
+            patch("core.sofia_agent.generate_response",
+                return_value="Noted boss! Anong size mo?") as mock_gen:
             response, failure = agent.build_response(
                 "pabili ng hoodie", Intent.PURCHASE
             )

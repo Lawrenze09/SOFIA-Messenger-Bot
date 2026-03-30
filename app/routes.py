@@ -36,7 +36,12 @@ from services.session_service import (
 )
 from services.messenger_service import send_message, send_image
 from services.email_service     import send_admin_alert
-from utils.security import verify_hmac, is_prompt_injection, is_silent_message, is_duplicate
+from utils.security import (
+    verify_hmac,
+    is_prompt_injection,
+    is_silent_message,
+    is_duplicate,
+)
 
 from utils.logger import get_logger
 
@@ -69,6 +74,12 @@ def webhook():
     Receive Facebook Messenger events.
     Verifies HMAC signature then dispatches to background thread.
     Always returns 200 immediately to prevent Meta retries.
+
+    Echo handling — Option A:
+    All echoes from the page side pause the bot regardless
+    of app_id. This covers manual admin replies, automated
+    page messages, and any third party tools connected to
+    the page. Admin types 'sofia' or 'bot' to reactivate.
     """
     payload   = request.get_data()
     signature = request.headers.get("X-Hub-Signature-256", "")
@@ -82,16 +93,16 @@ def webhook():
     except Exception:
         return "Bad Request", 400
 
+    # ── Echo handling — synchronous before any background dispatch ──
+    # Processes ALL echoes from the page side to guarantee state is
+    # written to Redis before any customer message thread is dispatched.
     for entry in body.get("entry", []):
         for event in entry.get("messaging", []):
             if event.get("message", {}).get("is_echo"):
                 text          = event["message"].get("text", "")
                 customer_psid = (event.get("recipient") or {}).get("id")
                 if text and customer_psid:
-                    if is_bot_reactivation(text):
-                        _handle_admin_echo(customer_psid, text)
-                    elif not event["message"].get("app_id"):
-                        _handle_admin_echo(customer_psid, text)
+                    _handle_admin_echo(customer_psid, text)
 
     executor.submit(_handle_payload, body)
     return jsonify({"status": "ok"}), 200
@@ -156,7 +167,7 @@ def monthly_analytics():
 def _handle_payload(body: dict) -> None:
     """
     Process incoming Messenger webhook payload.
-    Handles echo events (admin replies) and customer messages.
+    Skips echoes — already handled synchronously in webhook().
     """
     for entry in body.get("entry", []):
         for event in entry.get("messaging", []):
@@ -168,7 +179,7 @@ def _handle_payload(body: dict) -> None:
             if "read" in event or "delivery" in event:
                 continue
 
-            # ── Skip echoes — already handled synchronously in webhook() ──
+            # ── Skip echoes — handled synchronously above ──
             if event.get("message", {}).get("is_echo"):
                 continue
 
@@ -193,15 +204,22 @@ def _handle_payload(body: dict) -> None:
 
 def _handle_admin_echo(customer_psid: str, text: str) -> None:
     """
-    Process an echo event from the admin typing in Page Inbox.
-    Reactivation commands re-enable the bot; all other text pauses it.
+    Process an echo event from the page side.
+    Reactivation commands re-enable the bot.
+    ALL other page-side messages pause the bot —
+    covers manual admin replies, automated page messages,
+    and any third party tools connected to the page.
+
+    Args:
+        customer_psid: PSID of the customer being messaged.
+        text:          Text content of the echo.
     """
     if is_bot_reactivation(text):
         set_session_state(customer_psid, SessionState.BOT_ACTIVE)
         logger.info(f"Bot reactivated for customer {customer_psid}")
     else:
         set_session_state(customer_psid, SessionState.HUMAN_ACTIVE)
-        logger.info(f"Bot paused — admin responding to {customer_psid}")
+        logger.info(f"Bot paused — page sent message to {customer_psid}")
 
 
 # ─────────────────────────────────────────────
@@ -256,7 +274,7 @@ def _process_message(psid: str, text: str, mid: str) -> None:
     Main message processing pipeline.
 
     Order of operations:
-    1.  First message detection — send welcome + products
+    1.  First message detection — send welcome + stop
     2.  Silent message drop
     3.  Spam detection
     4.  Message rate gap enforcement
@@ -265,15 +283,17 @@ def _process_message(psid: str, text: str, mid: str) -> None:
     7a. Keyword handover / REFUND / COMPLAINT → escalate + pause
     7b. WHOLESALE / SHIPPING → rule reply + pause + alert
     7c. SIZE CHART → send image, bot stays active
-    8.  PURCHASE intent → LLM response + email admin immediately
+    8.  PURCHASE → LLM response + email admin immediately
     9.  All other intents → TiDB first, LLM fallback
     10. Guardrail failure → Sofia-voiced fallback + products + pause
     """
     start_time = time.time()
 
-    # ── 1. First message — send welcome, then continue processing ──
+    # ── 1. First message — send welcome and stop ──
+    # Customer's next message will go through the full pipeline.
     if is_first_message(psid):
         _send_welcome(psid)
+        return
 
     # ── 2. Silent drop ──
     if is_silent_message(text):
