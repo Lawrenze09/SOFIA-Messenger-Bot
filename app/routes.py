@@ -1,16 +1,16 @@
 """
 app/routes.py
-
+ 
 Flask webhook routes.
 Handles Facebook Messenger webhook verification and event processing.
 Delegates all business logic to services and core modules.
 """
-
+ 
 import time
 from concurrent.futures import ThreadPoolExecutor
-
+ 
 from flask import Blueprint, request, jsonify
-
+ 
 from config import settings
 from core import (
     Intent,
@@ -42,19 +42,19 @@ from utils.security import (
     is_silent_message,
     is_duplicate,
 )
-
+ 
 from utils.logger import get_logger
-
+ 
 logger   = get_logger(__name__)
 router   = Blueprint("webhook", __name__)
 executor = ThreadPoolExecutor(max_workers=4)
 agent    = SofiaAgent()
-
-
+ 
+ 
 # ─────────────────────────────────────────────
 # WEBHOOK VERIFICATION
 # ─────────────────────────────────────────────
-
+ 
 @router.get("/webhook")
 def webhook_verify():
     """Facebook webhook challenge verification."""
@@ -62,19 +62,19 @@ def webhook_verify():
         request.args.get("hub.verify_token")  == settings.verify_token):
         return request.args.get("hub.challenge", ""), 200
     return "Forbidden", 403
-
-
+ 
+ 
 # ─────────────────────────────────────────────
 # WEBHOOK EVENT RECEIVER
 # ─────────────────────────────────────────────
-
+ 
 @router.post("/webhook")
 def webhook():
     """
     Receive Facebook Messenger events.
     Verifies HMAC signature then dispatches to background thread.
     Always returns 200 immediately to prevent Meta retries.
-
+ 
     Echo handling — Option A:
     All echoes from the page side pause the bot regardless
     of app_id. This covers manual admin replies, automated
@@ -83,16 +83,16 @@ def webhook():
     """
     payload   = request.get_data()
     signature = request.headers.get("X-Hub-Signature-256", "")
-
+ 
     if not verify_hmac(payload, signature, settings.meta_app_secret):
         logger.warning("HMAC verification failed — rejected webhook event")
         return "Unauthorized", 401
-
+ 
     try:
         body = request.get_json(force=True)
     except Exception:
         return "Bad Request", 400
-
+ 
     # ── Echo handling — synchronous before any background dispatch ──
     # Processes ALL echoes from the page side to guarantee state is
     # written to Redis before any customer message thread is dispatched.
@@ -103,15 +103,15 @@ def webhook():
                 customer_psid = (event.get("recipient") or {}).get("id")
                 if text and customer_psid:
                     _handle_admin_echo(customer_psid, text)
-
+ 
     executor.submit(_handle_payload, body)
     return jsonify({"status": "ok"}), 200
-
-
+ 
+ 
 # ─────────────────────────────────────────────
 # ADMIN ENDPOINTS
 # ─────────────────────────────────────────────
-
+ 
 @router.post("/reset/<psid>")
 def reset_user_session(psid: str):
     """
@@ -123,33 +123,33 @@ def reset_user_session(psid: str):
         return jsonify({"status": "ok", "psid": psid, "state": "BOT_ACTIVE"}), 200
     except Exception as exc:
         return jsonify({"status": "error", "message": str(exc)}), 500
-
-
+ 
+ 
 @router.get("/health")
 def health():
     """Service health check — verifies Redis and MySQL connectivity."""
     from database.client import get_connection
     checks: dict = {}
-
+ 
     try:
         get_redis().ping()
         checks["redis"] = "ok"
     except Exception as exc:
         checks["redis"] = f"error: {exc}"
-
+ 
     try:
         conn = get_connection()
         conn.close()
         checks["mysql"] = "ok"
     except Exception as exc:
         checks["mysql"] = f"error: {exc}"
-
+ 
     checks["status"] = (
         "ok" if all(v == "ok" for v in checks.values()) else "degraded"
     )
     return jsonify(checks), 200
-
-
+ 
+ 
 @router.get("/analytics/monthly")
 def monthly_analytics():
     """Return intent distribution report for the requested month."""
@@ -158,12 +158,12 @@ def monthly_analytics():
     year  = request.args.get("year",  default=now.year,  type=int)
     month = request.args.get("month", default=now.month, type=int)
     return jsonify(get_monthly_report(year, month)), 200
-
-
+ 
+ 
 # ─────────────────────────────────────────────
 # PAYLOAD HANDLER
 # ─────────────────────────────────────────────
-
+ 
 def _handle_payload(body: dict) -> None:
     """
     Process incoming Messenger webhook payload.
@@ -174,34 +174,34 @@ def _handle_payload(body: dict) -> None:
             psid = (event.get("sender") or {}).get("id")
             if not psid:
                 continue
-
+ 
             # ── Skip read receipts and delivery confirmations ──
             if "read" in event or "delivery" in event:
                 continue
-
+ 
             # ── Skip echoes — handled synchronously above ──
             if event.get("message", {}).get("is_echo"):
                 continue
-
+ 
             # ── Customer message ──
             msg  = event.get("message", {})
             text = msg.get("text", "").strip()
             mid  = msg.get("mid", "")
-
+ 
             if not text or not mid:
                 continue
-
+ 
             if is_duplicate(mid, get_redis(), settings.dedup_ttl):
                 logger.info(f"Duplicate message dropped: {mid}")
                 continue
-
+ 
             if get_session_state(psid) == SessionState.HUMAN_ACTIVE:
                 logger.info(f"HUMAN_ACTIVE — message ignored for {psid}")
                 continue
-
+ 
             executor.submit(_process_message, psid, text, mid)
-
-
+ 
+ 
 def _handle_admin_echo(customer_psid: str, text: str) -> None:
     """
     Process an echo event from the page side.
@@ -209,7 +209,7 @@ def _handle_admin_echo(customer_psid: str, text: str) -> None:
     ALL other page-side messages pause the bot —
     covers manual admin replies, automated page messages,
     and any third party tools connected to the page.
-
+ 
     Args:
         customer_psid: PSID of the customer being messaged.
         text:          Text content of the echo.
@@ -220,25 +220,25 @@ def _handle_admin_echo(customer_psid: str, text: str) -> None:
     else:
         set_session_state(customer_psid, SessionState.HUMAN_ACTIVE)
         logger.info(f"Bot paused — page sent message to {customer_psid}")
-
-
+ 
+ 
 # ─────────────────────────────────────────────
 # WELCOME MESSAGE BUILDER
 # ─────────────────────────────────────────────
-
+ 
 def _send_welcome(psid: str) -> None:
     """
     Send a one-time welcome message to a first-time customer.
     Shows all current products from TiDB and explains how to
     reach a human assistant.
-
+ 
     Args:
         psid: Facebook PSID of the new customer.
     """
     from database.repository import search_products
-    products = search_products("")
+    products      = search_products("")
     product_lines = []
-
+ 
     for p in products:
         product_lines.append(
             f"• {p['name']}\n"
@@ -246,11 +246,11 @@ def _send_welcome(psid: str) -> None:
             f"  Size: {p['size']}\n"
             f"  ₱{float(p['price']):.2f}"
         )
-
+ 
     product_text = "\n\n".join(product_lines) if product_lines else (
         "Pasensya boss, wala kaming products na available ngayon."
     )
-
+ 
     welcome = (
         f"Hello boss! Ako si Sofia, ang assistant ng Ace Apparel.\n\n"
         f"Heto ang mga products namin ngayon:\n\n"
@@ -260,57 +260,59 @@ def _send_welcome(psid: str) -> None:
         f"Para sa kahit anong tanong sa products namin, "
         f"nandito lang ako!"
     )
-
+ 
     send_message(psid, welcome)
     logger.info(f"Welcome message sent to new customer {psid}")
-
-
+ 
+ 
 # ─────────────────────────────────────────────
 # CORE MESSAGE PROCESSOR
 # ─────────────────────────────────────────────
-
+ 
 def _process_message(psid: str, text: str, mid: str) -> None:
     """
     Main message processing pipeline.
-
+ 
     Order of operations:
     1.  First message detection — send welcome + stop
     2.  Silent message drop
-    3.  Spam detection
+    3.  Spam detection — set HUMAN_ACTIVE, silent block
     4.  Message rate gap enforcement
     5.  Prompt injection check
     6.  Intent classification
-    7a. Keyword handover / REFUND / COMPLAINT → escalate + pause
-    7b. WHOLESALE / SHIPPING → rule reply + pause + alert
-    7c. SIZE CHART → send image, bot stays active
-    8.  PURCHASE → LLM response + email admin immediately
-    9.  All other intents → TiDB first, LLM fallback
-    10. Guardrail failure → Sofia-voiced fallback + products + pause
+    7.  Keyword handover check — escalate + pause + alert
+    8.  Handover intents (PURCHASE / COMPLAINT / WHOLE_SALE /
+        SHIPPING_INFO / REFUND_REQUEST) — rule reply + pause + alert
+    9.  SIZE_CHART — send image reply, bot stays active
+    10. PRODUCT_INQUIRY / PRICE_QUERY — TiDB first, LLM + RAG fallback
+    11. Conversational intents (SMALL_TALK / PLAYFUL / BANTER / UNKNOWN)
+        — Gemini primary, rule-based fallback if quota exhausted
+    12. Guardrail failure — Sofia-voiced fallback + products + pause
     """
     start_time = time.time()
-
+ 
     # ── 1. First message — send welcome and stop ──
     # Customer's next message will go through the full pipeline.
     if is_first_message(psid):
         _send_welcome(psid)
         return
-
+ 
     # ── 2. Silent drop ──
     if is_silent_message(text):
         logger.info(f"Silent message dropped for {psid}")
         return
-
+ 
     # ── 3. Spam check ──
     if is_spam(psid):
         set_session_state(psid, SessionState.HUMAN_ACTIVE)
         logger.warning(f"Spam block — session paused for {psid}")
         return
-
+ 
     # ── 4. Rate gap ──
     apply_message_gap(psid)
-
+ 
     session_id = get_or_create_session_id(psid)
-
+ 
     # ── 5. Injection check ──
     if is_prompt_injection(text):
         send_message(psid,
@@ -318,64 +320,53 @@ def _process_message(psid: str, text: str, mid: str) -> None:
             "subukan mo ulit, baka may typo lang?"
         )
         return
-
+ 
     # ── 6. Intent classification ──
     intent = classify(text)
     log_intent(psid, session_id, intent.value, text)
-
-    # ── 7a. Keyword handover or REFUND / COMPLAINT ──
-    if agent.needs_keyword_handover(text) or intent in (
-        Intent.REFUND_REQUEST,
-        Intent.COMPLAINT,
-    ):
+ 
+    # ── 7. Keyword handover — raw text contains a trigger keyword ──
+    # Checked before intent routing so explicit keywords like 'admin'
+    # or 'refund' in a message always escalate regardless of intent.
+    if agent.needs_keyword_handover(text):
         send_message(psid, MSG_KEYWORD_HANDOVER)
         set_session_state(psid, SessionState.HUMAN_ACTIVE)
         send_admin_alert(psid, text, intent.value, "Keyword Escalation")
         log_message(psid, session_id, text, MSG_KEYWORD_HANDOVER,
                     intent.value, time.time() - start_time)
         return
-
-    # ── 7b. WHOLESALE / SHIPPING — rule reply + pause + alert ──
-    if intent in (Intent.WHOLE_SALE, Intent.SHIPPING_INFO):
+ 
+    # ── 8. Handover intents — one rule reply, then pause ──
+    # PURCHASE / COMPLAINT / WHOLE_SALE / SHIPPING_INFO / REFUND_REQUEST
+    # Bot does not remain active after this reply. Admin types
+    # 'sofia' or 'bot' to reactivate for this customer.
+    if agent.requires_handover(intent):
         response, _ = agent.build_response(text, intent)
         send_message(psid, response)
         set_session_state(psid, SessionState.HUMAN_ACTIVE)
         send_admin_alert(psid, text, intent.value,
-                         f"Admin Inquiry: {intent.value}")
+                         f"Handover: {intent.value}")
         log_message(psid, session_id, text, response,
                     intent.value, time.time() - start_time)
         return
-
-    # ── 7c. SIZE CHART — send image, bot stays active ──
+ 
+    # ── 9. SIZE_CHART — deterministic image reply, bot stays active ──
     if intent == Intent.SIZE_CHART:
         send_message(psid, MSG_SIZE_CHART)
         send_image(psid, SIZE_CHART_BOXER)
         log_message(psid, session_id, text, MSG_SIZE_CHART,
                     intent.value, time.time() - start_time)
         return
-
-    # ── 8. PURCHASE — LLM handles response, email admin immediately ──
-    if intent == Intent.PURCHASE:
-        response, failure = agent.build_response(text, intent)
-        if failure != GuardrailFailure.NONE:
-            fallback = agent.build_guardrail_fallback()
-            send_message(psid, fallback)
-            set_session_state(psid, SessionState.HUMAN_ACTIVE)
-            send_admin_alert(psid, text, intent.value,
-                             f"Guardrail Failure: {failure.value}")
-            log_message(psid, session_id, text, fallback,
-                        intent.value, time.time() - start_time)
-            return
-        send_message(psid, response)
-        send_admin_alert(psid, text, intent.value, "Purchase Intent")
-        log_message(psid, session_id, text, response,
-                    intent.value, time.time() - start_time)
-        return
-
-    # ── 9. All other intents — TiDB first, LLM fallback ──
+ 
+    # ── 10 & 11. All remaining intents — TiDB first, LLM fallback ──
+    # Covers PRODUCT_INQUIRY, PRICE_QUERY, SMALL_TALK,
+    # PLAYFUL, BANTER, UNKNOWN.
+    # sofia_agent.build_response() handles routing internally:
+    # - PRODUCT / PRICE → TiDB SQL → LLM + RAG on miss
+    # - Conversational  → Gemini primary → rule-based on failure
     response, failure = agent.build_response(text, intent)
-
-    # ── 10. Guardrail failure — Sofia-voiced fallback + products ──
+ 
+    # ── 12. Guardrail failure — fallback + pause + alert ──
     if failure != GuardrailFailure.NONE:
         fallback = agent.build_guardrail_fallback()
         send_message(psid, fallback)
@@ -385,8 +376,8 @@ def _process_message(psid: str, text: str, mid: str) -> None:
         log_message(psid, session_id, text, fallback,
                     intent.value, time.time() - start_time)
         return
-
+ 
     send_message(psid, response)
     log_message(psid, session_id, text, response,
                 intent.value, time.time() - start_time)
-    
+ 
