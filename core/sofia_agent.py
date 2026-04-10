@@ -15,13 +15,13 @@ Architecture:
 - PRODUCT_INQUIRY / PRICE_QUERY → TiDB SQL first (zero hallucination)
   └── Product found   → Rule-based format, LLM never called
   └── Product missing → Gemini + RAG context
-                        └── Gemini fails → Rule-based safe fallback
+                        └── Gemini fails → build_fallback_with_products()
 - SMALL_TALK / PLAYFUL / BANTER / UNKNOWN → Gemini primary
-  └── Gemini fails    → Rule-based safe fallback
+  └── Gemini fails    → build_fallback_with_products()
 - PURCHASE / COMPLAINT / WHOLE_SALE / SHIPPING_INFO / REFUND_REQUEST
   └── Rule-based reply once → Human handover → SendGrid alert
 - SIZE_CHART → Rule-based image reply, bot stays active
-- Guardrail failure → Rule-based safe fallback + product display + handover
+- Guardrail failure → build_fallback_with_products() + handover
 """
  
 from core.guardrails import GuardrailFailure, run_guardrails
@@ -82,24 +82,19 @@ MSG_REFUND_HANDOVER = (
     "mag-me-message sila sa'yo agad para ayusin ito."
 )
  
-MSG_GUARDRAIL_HANDOVER = (
-    "Ay sorry boss, may nangyari sa system ko bigla — "
-    "pero heto na ang products namin para hindi ka mahintay:\n\n"
+MSG_FALLBACK_WITH_PRODUCTS = (
+    "Ay sorry boss, di ko alam kung pano sasagutin ung tanong mo — "
+    "para sure heto ang mga products namin:\n\n"
     "{products}\n\n"
     "Kung may gusto kang i-order o kailangan mo ng tulong, "
     "type mo lang 'admin' para ma-alert ko agad ang team. "
     "Nandito lang ako kung may tanong ka sa products!"
 )
  
-MSG_GUARDRAIL_NO_PRODUCTS = (
-    "Ay sorry boss, may nangyari sa system ko bigla. "
-    "Type mo lang 'admin' para ma-alert ko agad ang team."
-)
- 
-MSG_LLM_FALLBACK = (
-    "Ay sorry boss, may technical issue ako ngayon. "
+MSG_FALLBACK_NO_PRODUCTS = (
+    "Ay sorry boss, di kita matutulungan dyan sa ngayon. "
     "Type mo lang 'admin' kung kailangan mo ng tulong, "
-    "o subukan ulit mamaya."
+    "bukod sa details ng product ng Ace Apparel."
 )
  
 SIZE_CHART_BOXER = (
@@ -111,12 +106,6 @@ MSG_SIZE_CHART = (
     "Sa ngayon Boxer palang ang meron kaming "
     "Size Chart para sa inyong reference."
 )
- 
-MSG_SIZE_CHART_NOT_FOUND = (
-    "Ay boss, wala pa kaming size chart para doon ngayon. "
-    "Type mo lang 'admin' para matulungan ka ng team namin."
-)
- 
  
 # ─────────────────────────────────────────────
 # INTENTS THAT REQUIRE HUMAN HANDOVER
@@ -269,11 +258,11 @@ class SofiaAgent:
             Caller (routes.py) is responsible for triggering handover.
         - PRODUCT_INQUIRY / PRICE_QUERY
           → TiDB SQL first. LLM + RAG only when TiDB returns no match.
-            If LLM fails, rule-based safe fallback is returned.
+            If LLM fails, build_fallback_with_products() is returned.
         - SIZE_CHART
           → Deterministic rule-based reply, bot stays active.
         - SMALL_TALK / PLAYFUL / BANTER / UNKNOWN
-          → Gemini primary. Rule-based safe fallback if Gemini fails.
+          → Gemini primary. build_fallback_with_products() if Gemini fails.
         - Guardrails run on all AI-generated responses.
  
         Args:
@@ -297,7 +286,7 @@ class SofiaAgent:
         if intent == Intent.SIZE_CHART:
             return MSG_SIZE_CHART, GuardrailFailure.NONE
  
-        # ── Conversational intents — Gemini primary, rule-based fallback ──
+        # ── Conversational intents — Gemini primary, fallback on failure ──
         # Covers SMALL_TALK, PLAYFUL, BANTER, UNKNOWN and any future
         # intents that are conversational in nature.
         try:
@@ -307,22 +296,30 @@ class SofiaAgent:
  
         except Exception as exc:
             logger.error(f"AI generation failed: {exc}")
-            return MSG_LLM_FALLBACK, GuardrailFailure.NONE
+            return self.build_fallback_with_products(), GuardrailFailure.NONE
  
-    def build_guardrail_fallback(self) -> str:
+    def build_fallback_with_products(self) -> str:
         """
-        Build the guardrail fallback message with current products.
-        Called by routes.py when a guardrail failure is detected.
+        Build a consistent fallback message with the current product catalog.
+ 
+        Used across all three failure paths:
+        - Guardrail failure on any AI-generated response
+        - LLM generation exception on conversational intents
+        - LLM generation exception on product miss (no TiDB match)
+ 
+        Queries TiDB live so the product list is always current.
+        Falls back to MSG_FALLBACK_NO_PRODUCTS if TiDB returns nothing.
  
         Returns:
-            Formatted fallback message string with product list injected.
+            Formatted fallback message string with product list injected,
+            or MSG_FALLBACK_NO_PRODUCTS if no products are available.
         """
         products     = search_products("")
         product_text = self._format_product_reply(products)
  
         if product_text:
-            return MSG_GUARDRAIL_HANDOVER.format(products=product_text)
-        return MSG_GUARDRAIL_NO_PRODUCTS
+            return MSG_FALLBACK_WITH_PRODUCTS.format(products=product_text)
+        return MSG_FALLBACK_NO_PRODUCTS
  
     # ─────────────────────────────────────────
     # PRODUCT HANDLER — TiDB FIRST, LLM FALLBACK
@@ -336,8 +333,8 @@ class SofiaAgent:
  
         TiDB SQL is always attempted first — LLM never touches product
         facts when a match exists. Gemini + RAG is only invoked when
-        TiDB returns no result. If Gemini fails, a safe rule-based
-        fallback is returned so the customer always gets a reply.
+        TiDB returns no result. If Gemini fails, build_fallback_with_products()
+        is returned so the customer always receives a useful reply.
  
         Args:
             message: Raw customer message.
@@ -353,7 +350,7 @@ class SofiaAgent:
             # ── TiDB match — pure rule-based, LLM never called ──
             return reply, GuardrailFailure.NONE
  
-        # ── No TiDB match — Gemini + RAG, rule-based on failure ──
+        # ── No TiDB match — Gemini + RAG, fallback on failure ──
         try:
             context = retrieve_product_context(message)
             context_block = (
@@ -371,7 +368,7 @@ class SofiaAgent:
  
         except Exception as exc:
             logger.error(f"AI product fallback failed: {exc}")
-            return MSG_LLM_FALLBACK, GuardrailFailure.NONE
+            return self.build_fallback_with_products(), GuardrailFailure.NONE
  
     # ─────────────────────────────────────────
     # AI GENERATION
@@ -391,7 +388,7 @@ class SofiaAgent:
             Raw Gemini response text.
  
         Raises:
-            Exception: Propagated to caller for rule-based fallback handling.
+            Exception: Propagated to caller for fallback handling.
         """
         context_block = (
             "\n[CONTEXT]: This is a casual conversation. "
