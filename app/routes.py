@@ -75,11 +75,19 @@ def webhook():
     Verifies HMAC signature then dispatches to background thread.
     Always returns 200 immediately to prevent Meta retries.
  
-    Echo handling — Option A:
-    All echoes from the page side pause the bot regardless
-    of app_id. This covers manual admin replies, automated
-    page messages, and any third party tools connected to
-    the page. Admin types 'sofia' or 'bot' to reactivate.
+    Echo handling — app_id filtering:
+    Meta echoes ALL outbound page messages back to the webhook with
+    is_echo: true. This includes Sofia's own automated replies.
+    We filter by app_id to distinguish echo sources:
+ 
+    - Sofia's own replies carry settings.meta_app_id — skipped entirely
+      so Sofia never pauses herself after sending a response.
+    - Admin manual replies from Page Inbox carry null or a different
+      app_id — processed by _handle_admin_echo → HUMAN_ACTIVE.
+    - Third party tools connected to the page carry a different app_id
+      — also processed by _handle_admin_echo → HUMAN_ACTIVE.
+ 
+    Admin types 'sofia' or 'bot' to reactivate the bot for a customer.
     """
     payload   = request.get_data()
     signature = request.headers.get("X-Hub-Signature-256", "")
@@ -94,13 +102,28 @@ def webhook():
         return "Bad Request", 400
  
     # ── Echo handling — synchronous before any background dispatch ──
-    # Processes ALL echoes from the page side to guarantee state is
-    # written to Redis before any customer message thread is dispatched.
+    # Processes echoes from the page side to guarantee state is written
+    # to Redis before any customer message thread is dispatched.
+    # Sofia's own outbound replies are filtered out by app_id to prevent
+    # the bot from pausing itself after every automated response.
     for entry in body.get("entry", []):
         for event in entry.get("messaging", []):
             if event.get("message", {}).get("is_echo"):
+                echo_app_id   = event.get("message", {}).get("app_id")
                 text          = event["message"].get("text", "")
                 customer_psid = (event.get("recipient") or {}).get("id")
+ 
+                # ── Skip Sofia's own outbound messages ──
+                # These are echoed back by Meta but must not trigger
+                # HUMAN_ACTIVE — they originated from this app, not
+                # from a human admin.
+                if str(echo_app_id) == str(settings.meta_app_id):
+                    logger.info(
+                        f"Own echo skipped for {customer_psid} "
+                        f"— app_id: {echo_app_id}"
+                    )
+                    continue
+ 
                 if text and customer_psid:
                     _handle_admin_echo(customer_psid, text)
  
@@ -204,11 +227,13 @@ def _handle_payload(body: dict) -> None:
  
 def _handle_admin_echo(customer_psid: str, text: str) -> None:
     """
-    Process an echo event from the page side.
-    Reactivation commands re-enable the bot.
-    ALL other page-side messages pause the bot —
-    covers manual admin replies, automated page messages,
-    and any third party tools connected to the page.
+    Process an echo event from the page side that did not originate
+    from this app. Reactivation commands re-enable the bot.
+    ALL other non-app echoes pause the bot — covers manual admin
+    replies and any third party tools connected to the page.
+ 
+    Sofia's own outbound replies are filtered out before this function
+    is called — see app_id check in webhook().
  
     Args:
         customer_psid: PSID of the customer being messaged.
@@ -219,7 +244,7 @@ def _handle_admin_echo(customer_psid: str, text: str) -> None:
         logger.info(f"Bot reactivated for customer {customer_psid}")
     else:
         set_session_state(customer_psid, SessionState.HUMAN_ACTIVE)
-        logger.info(f"Bot paused — page sent message to {customer_psid}")
+        logger.info(f"Bot paused — admin sent message to {customer_psid}")
  
  
 # ─────────────────────────────────────────────
