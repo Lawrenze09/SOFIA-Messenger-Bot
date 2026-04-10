@@ -1,42 +1,43 @@
 """
 config/settings.py
-
+ 
 Central configuration module.
 All environment variables are validated and typed here.
 No other module should call os.environ directly.
 """
-
+ 
 import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
-
+ 
 load_dotenv(override=os.getenv("FLASK_ENV") == "development")
-
-
+ 
+ 
 @dataclass(frozen=True)
 class Settings:
     # ── Gemini ──
     gemini_api_key: str
-
+ 
     # ── Database ──
     mysql_uri: str
-
+ 
     # ── Cache / Session ──
     redis_url: str
-
+ 
     # ── Notifications ──
     sendgrid_api_key: str
     admin_email: str
-
+ 
     # ── Facebook Messenger ──
     meta_app_secret: str
+    meta_app_id:     str
     page_access_token: str
     verify_token: str
-
+ 
     # ── Pinecone ──
     pinecone_api_key: str
     pinecone_index: str
-
+ 
     # ── Rate limits ──
     rate_limit: str
     msg_gap_secs: int
@@ -44,16 +45,16 @@ class Settings:
     spam_max_msgs: int
     email_window_secs: int
     email_max: int
-
+ 
     # ── TTLs ──
     dedup_ttl: int
     session_ttl: int
-
+ 
     # ── Flask ──
     port: int
     flask_env: str
-
-
+ 
+ 
 def _require(key: str) -> str:
     """Fetch a required env var or raise a clear error."""
     value = os.getenv(key, "").strip()
@@ -63,8 +64,8 @@ def _require(key: str) -> str:
             f"Add it to your .env file or Render environment settings."
         )
     return value
-
-
+ 
+ 
 def load_settings() -> Settings:
     """
     Load and validate all environment variables.
@@ -79,13 +80,14 @@ def load_settings() -> Settings:
         sendgrid_api_key  = _require("SENDGRID_API_KEY"),
         admin_email       = _require("ADMIN_EMAIL"),
         meta_app_secret   = _require("META_APP_SECRET"),
+        meta_app_id       = _require("META_APP_ID"),
         page_access_token = _require("PAGE_ACCESS_TOKEN"),
         verify_token      = _require("VERIFY_TOKEN"),
-
+ 
         # Optional with defaults
         pinecone_api_key  = os.getenv("PINECONE_API_KEY", ""),
         pinecone_index    = os.getenv("PINECONE_INDEX", ""),
-
+ 
         rate_limit        = os.getenv("RATE_LIMIT",        "30 per minute"),
         msg_gap_secs      = int(os.getenv("MSG_GAP_SECS",      "5")),
         spam_window_secs  = int(os.getenv("SPAM_WINDOW_SECS",  "20")),
@@ -97,7 +99,7 @@ def load_settings() -> Settings:
         port              = int(os.getenv("PORT",              "5001")),
         flask_env         = os.getenv("FLASK_ENV", "production"),
     )
-
-
+ 
+ 
 # ── Singleton — imported by all modules ──
 settings = load_settings()
