@@ -6,13 +6,13 @@ Mocks database and LLM calls — no external services needed.
 """
  
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
  
 from core.sofia_agent import (
     SofiaAgent,
     HANDOVER_INTENTS,
     _HANDOVER_REPLIES,
-    MSG_LLM_FALLBACK,
+    MSG_FALLBACK_NO_PRODUCTS,
     MSG_SIZE_CHART,
 )
 from core.intent_classifier import Intent
@@ -196,19 +196,37 @@ class TestProductIntents:
         assert failure == GuardrailFailure.NONE
         assert len(response) > 0
  
-    @patch("core.sofia_agent.generate_response",
-           side_effect=Exception("Gemini unavailable"))
-    @patch("core.sofia_agent.retrieve_product_context", return_value="")
-    @patch("core.sofia_agent.search_products", return_value=[])
-    def test_product_llm_failure_returns_fallback(
-        self, mock_search, mock_rag, mock_gen, agent
+    @patch("core.sofia_agent.search_products", return_value=[{
+        "name": "Premium Hoodie",
+        "size": "S-XL",
+        "price": 899.00,
+        "description": "400 GSM heavy cotton",
+        "category": "hoodie",
+        "stock_quantity": 10,
+    }])
+    def test_product_llm_failure_returns_fallback_with_products(
+        self, mock_search, agent
     ):
-        """When Gemini fails on product miss, safe fallback is returned."""
-        response, failure = agent.build_response(
-            "may tuxedo kayo?", Intent.PRODUCT_INQUIRY
-        )
-        assert failure == GuardrailFailure.NONE
-        assert "admin" in response.lower() or "technical" in response.lower()
+        """When Gemini fails on product miss, fallback with products is returned."""
+        with patch("core.sofia_agent.retrieve_product_context", return_value=""), \
+             patch("core.sofia_agent.generate_response",
+                   side_effect=Exception("Gemini unavailable")):
+            # First search_products call returns [] for the product lookup
+            # Second call returns the product list for build_fallback_with_products
+            with patch("core.sofia_agent.search_products",
+                       side_effect=[[], [{
+                           "name": "Premium Hoodie",
+                           "size": "S-XL",
+                           "price": 899.00,
+                           "description": "400 GSM heavy cotton",
+                           "category": "hoodie",
+                           "stock_quantity": 10,
+                       }]]):
+                response, failure = agent.build_response(
+                    "may tuxedo kayo?", Intent.PRODUCT_INQUIRY
+                )
+                assert failure == GuardrailFailure.NONE
+                assert "admin" in response.lower()
  
  
 # ─────────────────────────────────────────────
@@ -218,7 +236,7 @@ class TestProductIntents:
 class TestConversationalIntents:
     """
     SMALL_TALK, PLAYFUL, BANTER, UNKNOWN use Gemini as primary.
-    Rule-based safe fallback is returned when Gemini fails.
+    build_fallback_with_products() is returned when Gemini fails.
     """
  
     def test_small_talk_uses_llm(self, agent):
@@ -256,33 +274,16 @@ class TestConversationalIntents:
             )
             mock_gen.assert_called_once()
             assert failure == GuardrailFailure.NONE
- 
-    def test_llm_failure_returns_fallback(self, agent):
-        """When Gemini fails on any conversational intent, safe fallback is returned."""
+
+    def test_llm_response_with_guardrail_failure_propagates_enum(self, agent):
+        """build_response() must return the guardrail failure enum to the caller."""
         with patch("core.sofia_agent.generate_response",
-                   side_effect=Exception("Gemini unavailable")):
+                   return_value="I am 100% sure this is available PHP 599"):
             response, failure = agent.build_response(
                 "kumusta?", Intent.SMALL_TALK
             )
-            assert failure == GuardrailFailure.NONE
-            assert "admin" in response.lower() or "technical" in response.lower()
- 
-    def test_llm_failure_fallback_is_msg_llm_fallback(self, agent):
-        """Fallback message must match MSG_LLM_FALLBACK exactly."""
-        with patch("core.sofia_agent.generate_response",
-                   side_effect=Exception("Gemini unavailable")):
-            response, failure = agent.build_response(
-                "kumusta?", Intent.SMALL_TALK
-            )
-            assert response == MSG_LLM_FALLBACK
- 
- 
-# ─────────────────────────────────────────────
-# GUARDRAIL FALLBACK
-# ─────────────────────────────────────────────
- 
-class TestGuardrailFallback:
-    """build_guardrail_fallback() injects live products into fallback message."""
+            assert failure != GuardrailFailure.NONE
+            assert response == "I am 100% sure this is available PHP 599"
  
     @patch("core.sofia_agent.search_products", return_value=[{
         "name": "Premium Hoodie",
@@ -292,13 +293,77 @@ class TestGuardrailFallback:
         "category": "hoodie",
         "stock_quantity": 10,
     }])
-    def test_guardrail_fallback_includes_products(self, mock_search, agent):
-        result = agent.build_guardrail_fallback()
+    def test_llm_failure_returns_fallback_with_products(
+        self, mock_search, agent
+    ):
+        """When Gemini fails, build_fallback_with_products() is returned."""
+        with patch("core.sofia_agent.generate_response",
+                   side_effect=Exception("Gemini unavailable")):
+            response, failure = agent.build_response(
+                "kumusta?", Intent.SMALL_TALK
+            )
+            assert failure == GuardrailFailure.NONE
+            assert "admin" in response.lower()
+            assert "Premium Hoodie" in response
+ 
+    @patch("core.sofia_agent.search_products", return_value=[])
+    def test_llm_failure_no_products_returns_fallback(
+        self, mock_search, agent
+    ):
+        """When Gemini fails and TiDB is empty, MSG_FALLBACK_NO_PRODUCTS returned."""
+        with patch("core.sofia_agent.generate_response",
+                   side_effect=Exception("Gemini unavailable")):
+            response, failure = agent.build_response(
+                "kumusta?", Intent.SMALL_TALK
+            )
+            assert failure == GuardrailFailure.NONE
+            assert response == MSG_FALLBACK_NO_PRODUCTS
+ 
+ 
+# ─────────────────────────────────────────────
+# UNIFIED FALLBACK BUILDER
+# ─────────────────────────────────────────────
+ 
+class TestBuildFallbackWithProducts:
+    """
+    build_fallback_with_products() is the single fallback for all
+    failure paths — guardrail failure, LLM exception, product miss.
+    """
+ 
+    @patch("core.sofia_agent.search_products", return_value=[{
+        "name": "Premium Hoodie",
+        "size": "S-XL",
+        "price": 899.00,
+        "description": "400 GSM heavy cotton",
+        "category": "hoodie",
+        "stock_quantity": 10,
+    }])
+    def test_fallback_includes_products(self, mock_search, agent):
+        result = agent.build_fallback_with_products()
         assert "Premium Hoodie" in result
         assert "admin" in result.lower()
  
     @patch("core.sofia_agent.search_products", return_value=[])
-    def test_guardrail_fallback_no_products(self, mock_search, agent):
-        result = agent.build_guardrail_fallback()
-        assert "admin" in result.lower()
+    def test_fallback_no_products_returns_no_products_message(
+        self, mock_search, agent
+    ):
+        result = agent.build_fallback_with_products()
+        assert result == MSG_FALLBACK_NO_PRODUCTS
+ 
+    @patch("core.sofia_agent.search_products", return_value=[{
+        "name": "Premium Hoodie",
+        "size": "S-XL",
+        "price": 899.00,
+        "description": "400 GSM heavy cotton",
+        "category": "hoodie",
+        "stock_quantity": 10,
+    }])
+    def test_fallback_uses_msg_fallback_with_products_template(
+        self, mock_search, agent
+    ):
+        """Fallback message must use MSG_FALLBACK_WITH_PRODUCTS template."""
+        result = agent.build_fallback_with_products()
+        # Template text should appear in the output
+        assert "di ko alam" in result.lower()
+        assert "products namin" in result.lower()
  
