@@ -5,8 +5,6 @@ Flask application factory and startup sequence.
 Initializes all services before accepting traffic.
 """
 
-import os
-
 from flask import Flask
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -37,7 +35,7 @@ def create_app() -> Flask:
         default_limits=[settings.rate_limit],
         storage_uri=(
             settings.redis_url
-            if settings.flask_env != "development"
+            if settings.is_production
             else "memory://"
         ),
     )
