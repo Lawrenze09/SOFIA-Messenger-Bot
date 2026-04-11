@@ -4,13 +4,26 @@ config/settings.py
 Central configuration module.
 All environment variables are validated and typed here.
 No other module should call os.environ directly.
+ 
+Deployment behavior:
+- Local execution (RENDER not set) — Meta variables are optional.
+  App starts without META_APP_SECRET, META_APP_ID, PAGE_ACCESS_TOKEN,
+  and VERIFY_TOKEN to allow local runs without a Meta Developer account.
+  HMAC verification still executes — it fails gracefully when no real
+  webhook traffic arrives. All other required variables still apply.
+- Render deployment (RENDER set) — all variables are required.
+  Server aborts with a clear error if any required variable is missing.
+ 
+Note: Production detection is deployment-bound, not flag-controlled.
+RENDER is set automatically by Render's infrastructure and is not
+a user-controlled value in normal operation.
 """
  
 import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
  
-load_dotenv(override=os.getenv("FLASK_ENV") == "development")
+load_dotenv()
  
  
 @dataclass(frozen=True)
@@ -29,30 +42,35 @@ class Settings:
     admin_email: str
  
     # ── Facebook Messenger ──
-    meta_app_secret: str
-    meta_app_id:     str
+    # Required on Render. Optional in local execution — allows runs
+    # without a Meta Developer account. HMAC verification still executes.
+    meta_app_secret:   str
+    meta_app_id:       str
     page_access_token: str
-    verify_token: str
+    verify_token:      str
  
     # ── Pinecone ──
     pinecone_api_key: str
-    pinecone_index: str
+    pinecone_index:   str
  
     # ── Rate limits ──
-    rate_limit: str
-    msg_gap_secs: int
-    spam_window_secs: int
-    spam_max_msgs: int
+    rate_limit:        str
+    msg_gap_secs:      int
+    spam_window_secs:  int
+    spam_max_msgs:     int
     email_window_secs: int
-    email_max: int
+    email_max:         int
  
     # ── TTLs ──
-    dedup_ttl: int
+    dedup_ttl:   int
     session_ttl: int
  
     # ── Flask ──
-    port: int
-    flask_env: str
+    # Used only for Flask-specific behavior (rate limiter storage URI).
+    # Not used as a security decision source.
+    port:          int
+    flask_env:     str
+    is_production: bool
  
  
 def _require(key: str) -> str:
@@ -66,27 +84,56 @@ def _require(key: str) -> str:
     return value
  
  
+def _optional(key: str) -> str:
+    """
+    Fetch an optional env var.
+    Returns empty string if not set — caller must handle the empty case.
+    """
+    return os.getenv(key, "").strip()
+ 
+ 
 def load_settings() -> Settings:
     """
     Load and validate all environment variables.
     Called once at application startup.
-    Raises EnvironmentError if any required variable is missing.
+ 
+    Deployment context is inferred from the RENDER environment variable,
+    which is set automatically by Render's infrastructure. This is a
+    deployment-bound guarantee, not a hard invariant — it is the correct
+    tradeoff for a single-platform, single-developer system.
+ 
+    Meta variables are required on Render and optional in local execution.
+    All other required variables must be set in both contexts.
+ 
+    Raises:
+        EnvironmentError: If any required variable is missing.
     """
+    # ── Deployment context — single source of truth ──
+    # is_production: True when running on Render infrastructure.
+    # is_local:      True when running on any non-Render machine.
+    is_production = bool(os.getenv("RENDER"))
+    is_local      = not is_production
+ 
+    # ── Meta vars — required on Render, optional locally ──
+    meta_resolver = _optional if is_local else _require
+ 
     return Settings(
-        # Required
+        # Required in all contexts
         gemini_api_key    = _require("GEMINI_API_KEY"),
         mysql_uri         = _require("MYSQL_URI"),
         redis_url         = _require("REDIS_URL").replace('"', '').replace("'", ""),
         sendgrid_api_key  = _require("SENDGRID_API_KEY"),
         admin_email       = _require("ADMIN_EMAIL"),
-        meta_app_secret   = _require("META_APP_SECRET"),
-        meta_app_id       = _require("META_APP_ID"),
-        page_access_token = _require("PAGE_ACCESS_TOKEN"),
-        verify_token      = _require("VERIFY_TOKEN"),
+ 
+        # Required on Render, optional locally
+        meta_app_secret   = meta_resolver("META_APP_SECRET"),
+        meta_app_id       = meta_resolver("META_APP_ID"),
+        page_access_token = meta_resolver("PAGE_ACCESS_TOKEN"),
+        verify_token      = meta_resolver("VERIFY_TOKEN"),
  
         # Optional with defaults
-        pinecone_api_key  = os.getenv("PINECONE_API_KEY", ""),
-        pinecone_index    = os.getenv("PINECONE_INDEX", ""),
+        pinecone_api_key  = _optional("PINECONE_API_KEY"),
+        pinecone_index    = _optional("PINECONE_INDEX"),
  
         rate_limit        = os.getenv("RATE_LIMIT",        "30 per minute"),
         msg_gap_secs      = int(os.getenv("MSG_GAP_SECS",      "5")),
@@ -98,8 +145,10 @@ def load_settings() -> Settings:
         session_ttl       = int(os.getenv("SESSION_TTL_SECS",  str(60 * 60 * 24 * 90))),
         port              = int(os.getenv("PORT",              "5001")),
         flask_env         = os.getenv("FLASK_ENV", "production"),
+        is_production     = is_production,
     )
  
  
 # ── Singleton — imported by all modules ──
 settings = load_settings()
+ 
