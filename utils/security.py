@@ -5,7 +5,13 @@ Security utilities:
 - HMAC-SHA256 webhook signature verification
 - Prompt injection detection
 - Message deduplication via Redis
-- Silent message detection (acknowledgements, emojis, gibberish)
+- Silent message detection (acknowledgements and emoji-only messages)
+ 
+Gibberish detection is intentionally omitted.
+A single gibberish message routes to UNKNOWN intent — one API call,
+acceptable cost. Repeated gibberish is caught by is_spam() in
+session_service.py after 5 messages in 15 seconds, setting the
+session to HUMAN_ACTIVE and blocking further processing.
 """
  
 import hmac
@@ -108,13 +114,19 @@ def is_duplicate(mid: str, redis_client: redis_lib.Redis, ttl: int) -> bool:
  
 # Explicit acknowledgement phrases that need no bot reply.
 # Checked as exact full-message matches after stripping whitespace.
+# Deliberately minimal — ambiguous words like "ok", "sige", "oo"
+# are excluded because they can signal purchase confirmation intent
+# (e.g. "ok pabili na") and must reach the intent classifier.
 _SILENT_KEYWORDS: set[str] = {
-    "👍", "✅", "😊", "🙏", "noted", "noted po",
-    "naiintindihan ko", "copy", "copy po", ".", "ahh", "ah",
+    "noted", "noted po",
+    "naiintindihan ko", "copy", "copy po",
+    "👍", "✅", "😊", "🙏",
+    ".", "ahh", "ah",
 }
  
-# Unicode ranges that cover all standard emoji blocks.
-# Used to detect messages composed entirely of emoji characters.
+# Unicode ranges covering all standard emoji blocks.
+# Used to detect messages composed entirely of emoji characters
+# regardless of which specific emojis are used.
 _EMOJI_PATTERN = re.compile(
     "["
     "\U0001F600-\U0001F64F"  # emoticons
@@ -138,11 +150,6 @@ _EMOJI_PATTERN = re.compile(
     re.UNICODE,
 )
  
-# Minimum number of meaningful characters required to process a message.
-# Messages shorter than this threshold that are not in _SILENT_KEYWORDS
-# are treated as gibberish and silently dropped.
-_MIN_MESSAGE_LENGTH = 2
- 
  
 def _is_emoji_only(text: str) -> bool:
     """
@@ -161,32 +168,20 @@ def _is_emoji_only(text: str) -> bool:
     return bool(_EMOJI_PATTERN.fullmatch(stripped))
  
  
-def _is_gibberish(text: str) -> bool:
-    """
-    Check if a message is too short to carry meaningful intent.
-    Applies only to messages not already caught by _SILENT_KEYWORDS.
-    Threshold is _MIN_MESSAGE_LENGTH characters after stripping whitespace.
- 
-    Args:
-        text: Customer message text.
- 
-    Returns:
-        True if the message is too short to process.
-    """
-    return len(text.strip()) <= _MIN_MESSAGE_LENGTH
- 
- 
 def is_silent_message(text: str) -> bool:
     """
     Detect messages that need no bot reply.
  
-    Catches three categories:
+    Catches two categories:
     1. Explicit acknowledgement phrases — exact match against
-       _SILENT_KEYWORDS (e.g. "sige", "ok po", "noted").
+       _SILENT_KEYWORDS (e.g. "noted", "copy po").
     2. Emoji-only messages — any message composed entirely of
        emoji characters regardless of which specific emojis are used.
-    3. Gibberish — messages of _MIN_MESSAGE_LENGTH characters or
-       fewer that carry no meaningful intent (e.g. "si", "sd", "x").
+ 
+    Gibberish detection (random character sequences) is handled
+    upstream by is_spam() in session_service.py — repeated gibberish
+    triggers HUMAN_ACTIVE after 5 messages in 15 seconds. A single
+    gibberish message routes to UNKNOWN intent at negligible API cost.
  
     Args:
         text: Customer message text.
@@ -203,9 +198,4 @@ def is_silent_message(text: str) -> bool:
         logger.info(f"Emoji-only message silently dropped: {text!r}")
         return True
  
-    if _is_gibberish(normalized):
-        logger.info(f"Gibberish message silently dropped: {text!r}")
-        return True
- 
     return False
- 
