@@ -10,10 +10,10 @@
 [![Pinecone](https://img.shields.io/badge/Pinecone-RAG-00B388?style=flat-square)](https://pinecone.io)
 [![Redis](https://img.shields.io/badge/Redis-Session-DC382D?style=flat-square&logo=redis&logoColor=white)](https://redis.io)
 [![Render](https://img.shields.io/badge/Deployed-Render-46E3B7?style=flat-square&logo=render&logoColor=white)](https://render.com)
-[![Tests](https://img.shields.io/badge/Tests-59%2F59_Passing-brightgreen?style=flat-square)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-99%2F99_Passing-brightgreen?style=flat-square)](tests/)
 [![Meta](https://img.shields.io/badge/Meta_App_Review-Approved-1877F2?style=flat-square&logo=meta&logoColor=white)](https://developers.facebook.com)
 
-**A cost-controlled hybrid LLM system where conversation is AI-driven and product details response is deterministic to eliminate hallucination for critical product data**
+**A cost-controlled hybrid LLM system where conversation is AI-driven and product responses are deterministic to eliminate hallucination for critical product data**
 
 </div>
  
@@ -111,7 +111,7 @@ flowchart TD
     E -->|sofia / bot| F[Set BOT_ACTIVE\nRedis]
     E -->|Other Text| G[Set HUMAN_ACTIVE\nRedis]
     D -->|Customer Message| H[Background Thread\nThreadPoolExecutor]
-    H --> I[Silent Message Filter\nEmoji + Gibberish + Keywords]
+    H --> I[Silent Message Filter\nEmoji + Keywords]
     I -->|Acknowledged| X3[Silent Drop]
     I -->|Proceed| J[Spam Detection\nSliding Window Counter]
     J -->|Blocked| K[Set HUMAN_ACTIVE]
@@ -183,7 +183,8 @@ sofia-bot/
 ├── tests/                        # 100% offline — no API keys required
 │   ├── test_agent.py             # Handover routing, rule engine, AI fallback
 │   ├── test_guardrails.py        # All 4 failure categories
-│   └── test_intent.py            # Keyword priority, Gemini fallback mock
+│   ├── test_intent.py            # Keyword priority, Gemini fallback mock
+│   └── test_security.py          # HMAC verification, injection detection, deduplication, silent filter
 │
 ├── utils/
 │   ├── __init__.py
@@ -220,7 +221,7 @@ sofia-bot/
 
 ## Testing
 
-- **59 tests, all passing, fully offline** — Gemini, Pinecone, TiDB, and Redis are mocked via `unittest.mock.patch`; no API keys required to run the suite
+- **99 tests, all passing, fully offline** — Gemini, Pinecone, TiDB, and Redis are mocked via `unittest.mock.patch`; no API keys required to run the suite
 - **Meta App Review approved** — passed Facebook's platform policy and data handling review; live in production handling real customer inquiries for Ace Apparel
 - **Regression guards in place** — `test_purchase_before_product_inquiry` pins keyword priority order; `test_handover_replies_map_is_complete` guards against incomplete handover routing
 
