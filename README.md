@@ -46,18 +46,20 @@
 git clone https://github.com/Lawrenze09/SOFIA-Messenger-Bot.git
 cd SOFIA-Messenger-Bot
 python -m venv .venv
-.venv\Scripts\activate        # Windows
 source .venv/bin/activate     # macOS / Linux
+.venv\Scripts\activate        # Windows
 pip install -r requirements.txt
 
 # Configure environment
-cp .env.example .env
+cp .env.example .env          # macOS / Linux
+copy .env.example .env        # Windows
 # Edit .env — all required variables must be set before the server starts
-# See Environment Variables section below or copy directly from the [.env.example](.env.example) file.
 
 # Run the server
 python -m app.main
 ```
+
+See [.env.example](.env.example) for the full variable list or the Environment Variables section below.
 
 ### Step 2 — Messenger Integration (optional)
 
