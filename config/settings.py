@@ -137,8 +137,8 @@ def load_settings() -> Settings:
  
         rate_limit        = os.getenv("RATE_LIMIT",        "30 per minute"),
         msg_gap_secs      = int(os.getenv("MSG_GAP_SECS",      "5")),
-        spam_window_secs  = int(os.getenv("SPAM_WINDOW_SECS",  "20")),
-        spam_max_msgs     = int(os.getenv("SPAM_MAX_MSGS",     "10")),
+        spam_window_secs  = int(os.getenv("SPAM_WINDOW_SECS",  "15")),
+        spam_max_msgs     = int(os.getenv("SPAM_MAX_MSGS",     "5")),
         email_window_secs = int(os.getenv("EMAIL_WINDOW_SECS", "3600")),
         email_max         = int(os.getenv("EMAIL_MAX",         "3")),
         dedup_ttl         = int(os.getenv("DEDUP_TTL_SECS",    "300")),
