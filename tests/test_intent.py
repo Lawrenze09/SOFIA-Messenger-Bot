@@ -5,7 +5,6 @@ Unit tests for the intent classification engine.
 Tests keyword matching priority and edge cases.
 """
 
-import pytest
 from unittest.mock import patch
 
 from core.intent_classifier import Intent, classify
