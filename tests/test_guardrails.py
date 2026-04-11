@@ -6,7 +6,6 @@ Verifies that hallucinations, fabricated products,
 sycophancy, and unsafe content are correctly detected.
 """
 
-import pytest
 from core.guardrails import GuardrailFailure, run_guardrails
 
 
