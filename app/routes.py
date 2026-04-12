@@ -132,6 +132,55 @@ def webhook():
  
  
 # ─────────────────────────────────────────────
+# LOCAL DEVELOPMENT ENDPOINT
+# ─────────────────────────────────────────────
+ 
+@router.post("/simulate")
+def simulate():
+    """
+    Simulate a customer message through the full processing pipeline.
+    Bypasses Meta webhook transport — no Facebook credentials required.
+    Disabled in production (returns 403 when RENDER is set).
+ 
+    This endpoint exercises the complete core pipeline:
+    intent classification, rule engine, RAG retrieval, guardrails,
+    and fallback routing — without requiring ngrok or a Facebook Page.
+ 
+    Request body:
+        message (str): Customer message text to process. Required.
+        psid    (str): Simulated Facebook PSID. Defaults to 'test_user'.
+ 
+    Returns:
+        JSON with intent, response text, and guardrail failure status.
+ 
+    Example:
+        POST /simulate
+        {"message": "magkano yung hoodie?"}
+    """
+    if settings.is_production:
+        return jsonify({"error": "Not available in production"}), 403
+ 
+    data = request.get_json(force=True) or {}
+    text = data.get("message", "").strip()
+    psid = data.get("psid", "test_user")
+ 
+    if not text:
+        return jsonify({"error": "message field is required"}), 400
+ 
+    # ── Run through the full classification and response pipeline ──
+    intent            = classify(text)
+    response, failure = agent.build_response(text, intent)
+ 
+    return jsonify({
+        "psid"    : psid,
+        "message" : text,
+        "intent"  : intent.value,
+        "response": response,
+        "failure" : failure.value,
+    }), 200
+ 
+ 
+# ─────────────────────────────────────────────
 # ADMIN ENDPOINTS
 # ─────────────────────────────────────────────
  
@@ -393,7 +442,7 @@ def _process_message(psid: str, text: str, mid: str) -> None:
  
     # ── 12. Guardrail failure — fallback + pause + alert ──
     if failure != GuardrailFailure.NONE:
-        fallback = agent.build_guardrail_fallback()
+        fallback = agent.build_fallback_with_products()
         send_message(psid, fallback)
         set_session_state(psid, SessionState.HUMAN_ACTIVE)
         send_admin_alert(psid, text, intent.value,
@@ -405,4 +454,4 @@ def _process_message(psid: str, text: str, mid: str) -> None:
     send_message(psid, response)
     log_message(psid, session_id, text, response,
                 intent.value, time.time() - start_time)
- 
+    
