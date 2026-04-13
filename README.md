@@ -72,6 +72,18 @@ ngrok http 5001
 # Verify Token:  value of VERIFY_TOKEN in your .env
 ```
 
+### Step 3 — Test the pipeline locally (no Meta required)
+
+```bash
+# Simulate a customer message through the full processing pipeline
+curl -X POST http://localhost:5001/simulate \
+  -H "Content-Type: application/json" \
+  -d '{"message": "magkano yung hoodie?"}'
+
+# Returns intent, response, and guardrail failure status as JSON
+# Disabled automatically in production
+```
+
 ---
 
 ## How It Works
@@ -192,11 +204,12 @@ sofia-bot/
 │   └── security.py               # HMAC, injection, dedup, silent filter
 │
 ├── .env.example                  # All required and optional environment variables
+├── .gitignore
+├── LICENSE                       # Apache License 2.0
+├── README.md                     # Project documentation
 ├── gunicorn.conf.py              # 2 workers, post_fork startup hook
 ├── render.yaml                   # Render Blueprint — Singapore region
 └── requirements.txt
-
-
 ```
 
 ---
@@ -251,54 +264,67 @@ python scripts/sync_products.py
 
 ---
 
+## API Endpoints
+
+| Method | Endpoint             | Auth         | Description                                    |
+| :----- | :------------------- | :----------- | :--------------------------------------------- |
+| `GET`  | `/webhook`           | VERIFY_TOKEN | Facebook webhook challenge verification        |
+| `POST` | `/webhook`           | HMAC-SHA256  | Receive and process Messenger events           |
+| `POST` | `/simulate`          | None         | Test pipeline locally — disabled in production |
+| `GET`  | `/health`            | None         | Redis + MySQL connectivity check               |
+| `POST` | `/reset/<psid>`      | None         | Emergency session reset for a user             |
+| `GET`  | `/analytics/monthly` | None         | Intent distribution report                     |
+
+---
+
 ## Environment Variables
 
-**Meta** — optional in local execution, required on Render
+**Meta**
 
-| Variable            | Description                                  | Local       | Production  |
-| :------------------ | :------------------------------------------- | :---------- | :---------- |
-| `META_APP_SECRET`   | Facebook App Secret for HMAC verification    | ⚪ Optional | ✅ Required |
-| `META_APP_ID`       | Facebook App ID — filters Sofia's own echoes | ⚪ Optional | ✅ Required |
-| `PAGE_ACCESS_TOKEN` | Facebook Page permanent access token         | ⚪ Optional | ✅ Required |
-| `VERIFY_TOKEN`      | Webhook verification token                   | ⚪ Optional | ✅ Required |
+| Variable            | Description                                  | Required |
+| :------------------ | :------------------------------------------- | :------- |
+| `META_APP_SECRET`   | Facebook App Secret for HMAC verification    | ✅       |
+| `META_APP_ID`       | Facebook App ID — filters Sofia's own echoes | ✅       |
+| `PAGE_ACCESS_TOKEN` | Facebook Page permanent access token         | ✅       |
+| `VERIFY_TOKEN`      | Webhook verification token                   | ✅       |
 
-**Gemini** — required in all contexts
+**Gemini**
 
-| Variable         | Description           | Local       | Production  |
-| :--------------- | :-------------------- | :---------- | :---------- |
-| `GEMINI_API_KEY` | Google Gemini API key | ✅ Required | ✅ Required |
+| Variable         | Description           | Required |
+| :--------------- | :-------------------- | :------- |
+| `GEMINI_API_KEY` | Google Gemini API key | ✅       |
 
-**Database** — required in all contexts
+**Database**
 
-| Variable    | Description                               | Local       | Production  |
-| :---------- | :---------------------------------------- | :---------- | :---------- |
-| `MYSQL_URI` | TiDB connection string with SSL cert path | ✅ Required | ✅ Required |
+| Variable    | Description                               | Required |
+| :---------- | :---------------------------------------- | :------- |
+| `MYSQL_URI` | TiDB connection string with SSL cert path | ✅       |
 
-**Redis** — required in all contexts
+**Redis**
 
-| Variable    | Description              | Local       | Production  |
-| :---------- | :----------------------- | :---------- | :---------- |
-| `REDIS_URL` | Upstash Redis connection | ✅ Required | ✅ Required |
+| Variable    | Description              | Required |
+| :---------- | :----------------------- | :------- |
+| `REDIS_URL` | Upstash Redis connection | ✅       |
 
-**Notifications** — required in all contexts
+**Notifications**
 
-| Variable           | Description                        | Local       | Production  |
-| :----------------- | :--------------------------------- | :---------- | :---------- |
-| `SENDGRID_API_KEY` | SendGrid API key for admin alerts  | ✅ Required | ✅ Required |
-| `ADMIN_EMAIL`      | Recipient address for alert emails | ✅ Required | ✅ Required |
+| Variable           | Description                        | Required |
+| :----------------- | :--------------------------------- | :------- |
+| `SENDGRID_API_KEY` | SendGrid API key for admin alerts  | ✅       |
+| `ADMIN_EMAIL`      | Recipient address for alert emails | ✅       |
 
-**Pinecone** — optional in all contexts, RAG disabled if not set
+**Pinecone**
 
-| Variable           | Description                                | Local       | Production  |
-| :----------------- | :----------------------------------------- | :---------- | :---------- |
-| `PINECONE_API_KEY` | Pinecone API key — RAG disabled if missing | ⚪ Optional | ⚪ Optional |
-| `PINECONE_INDEX`   | Pinecone index name                        | ⚪ Optional | ⚪ Optional |
+| Variable           | Description                                | Required |
+| :----------------- | :----------------------------------------- | :------- |
+| `PINECONE_API_KEY` | Pinecone API key — RAG disabled if missing | ⚪       |
+| `PINECONE_INDEX`   | Pinecone index name                        | ⚪       |
 
-**App** — optional in all contexts
+**App**
 
-| Variable    | Description                                                  | Local       | Production  |
-| :---------- | :----------------------------------------------------------- | :---------- | :---------- |
-| `FLASK_ENV` | Controls rate limiter storage URI — does not affect security | ⚪ Optional | ⚪ Optional |
+| Variable    | Description                                                  | Required |
+| :---------- | :----------------------------------------------------------- | :------- |
+| `FLASK_ENV` | Controls rate limiter storage URI — does not affect security | ⚪       |
 
 ---
 
